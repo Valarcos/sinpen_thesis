@@ -457,7 +457,7 @@ export default function CobrosYPedidosPage() {
                     codigo: d.productoCodigo || d.codigoSnapshot,
                     descripcion: d.productoNombre || d.descripcionSnapshot,
                     quantity: d.cantidad,
-                    unitPrice: d.precioUnitario,
+                    unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
                     subtotal: d.subtotal
                 })),
@@ -505,7 +505,7 @@ export default function CobrosYPedidosPage() {
                     codigo: d.productoCodigo || d.codigoSnapshot,
                     descripcion: d.productoNombre || d.descripcionSnapshot,
                     quantity: d.cantidad,
-                    unitPrice: d.precioUnitario,
+                    unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
                     subtotal: d.subtotal
                 })),
