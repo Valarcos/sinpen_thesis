@@ -148,11 +148,11 @@ export default function useCart() {
                 descripcion: d.productoNombre || d.descripcionSnapshot || 'Desconocido',
                 cantidadStock: 9999, // Bypass initial strict check until real products load
                 precioCosto: d.costoSnapshot || 0,
-                precioMinorista: d.precioLista || d.precioUnitario,
-                precioMayorista: d.precioLista || d.precioUnitario
+                precioMinorista: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
+                precioMayorista: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0))
             },
             quantity: d.cantidad,
-            unitPrice: d.precioLista || d.precioUnitario,
+            unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
             discount: d.descuentoValor || 0
         }));
         setCartItems(mappedItems);
