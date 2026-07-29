@@ -95,6 +95,7 @@ public class VentaRepository {
                 rs.getLong("cantidad"),
                 rs.getDouble("precio_lista"),
                 rs.getDouble("descuento_valor"),
+                rs.getString("razon_descuento"),
                 rs.getDouble("precio_unitario"),
                 rs.getDouble("subtotal"),
                 anulado);
@@ -150,7 +151,7 @@ public class VentaRepository {
         String sql = """
                     INSERT INTO detalles_venta
                     (venta_id, producto_id, codigo_snapshot, descripcion_snapshot, costo_snapshot, cantidad,
-                     precio_lista, descuento_valor, precio_unitario, subtotal, anulado)
+                     precio_lista, descuento_valor, razon_descuento, precio_unitario, subtotal, anulado)
                     VALUES (:ventaId,
                             :productoId,
                             :codigoSnapshot,
@@ -159,6 +160,7 @@ public class VentaRepository {
                             :cantidad,
                             :precioLista,
                             :descuentoValor,
+                            :razonDescuento,
                             :precioUnitario,
                             :subtotal,
                             :anulado)
@@ -174,6 +176,7 @@ public class VentaRepository {
                         .addValue("cantidad", d.getCantidad())
                         .addValue("precioLista", d.getPrecioLista())
                         .addValue("descuentoValor", d.getDescuentoValor())
+                        .addValue("razonDescuento", d.getRazonDescuento())
                         .addValue("precioUnitario", d.getPrecioUnitario())
                         .addValue("subtotal", d.getSubtotal())
                         .addValue(FIELD_ANULADO, Boolean.TRUE.equals(d.getAnulado())))
@@ -300,23 +303,29 @@ public class VentaRepository {
         }
     }
 
-    public List<Venta> findVentasByFechaBetween(java.time.LocalDateTime startDate, LocalDateTime endDate, int limit, int offset) {
+    public List<Venta> findVentasByFechaBetween(java.time.LocalDateTime startDate, LocalDateTime endDate, Long searchId, int limit, int offset) {
         String sql = """
                     SELECT v.*,
                            (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                            (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                     FROM ventas v
-                    WHERE fecha BETWEEN :startDate AND :endDate
-                      AND v.estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE')
-                    ORDER BY fecha DESC, id DESC
-                    LIMIT :limit OFFSET :offset
+                    WHERE v.estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE')
                 """;
 
         MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue(PARAM_START_DATE, startDate)
-                .addValue(PARAM_END_DATE, endDate)
                 .addValue("limit", limit)
                 .addValue("offset", offset);
+
+        if (searchId != null) {
+            sql += " AND CAST(v.id AS TEXT) LIKE CAST(:searchId AS TEXT) || '%' ";
+            params.addValue("searchId", searchId);
+        } else {
+            sql += " AND fecha BETWEEN :startDate AND :endDate ";
+            params.addValue(PARAM_START_DATE, startDate)
+                    .addValue(PARAM_END_DATE, endDate);
+        }
+
+        sql += " ORDER BY fecha DESC, id DESC LIMIT :limit OFFSET :offset";
 
         return namedJdbcTemplate.query(sql, params, ventaMapper);
     }
@@ -342,11 +351,18 @@ public class VentaRepository {
         return namedJdbcTemplate.query(sql, params, ventaMapper);
     }
 
-    public long countVentasByFechaBetween(java.time.LocalDateTime startDate, LocalDateTime endDate) {
-        String sql = "SELECT COUNT(*) FROM ventas WHERE fecha BETWEEN :startDate AND :endDate AND estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE')";
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue(PARAM_START_DATE, startDate)
-                .addValue(PARAM_END_DATE, endDate);
+    public long countVentasByFechaBetween(java.time.LocalDateTime startDate, LocalDateTime endDate, Long searchId) {
+        String sql = "SELECT COUNT(*) FROM ventas WHERE estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE')";
+        MapSqlParameterSource params = new MapSqlParameterSource();
+
+        if (searchId != null) {
+            sql += " AND CAST(id AS TEXT) LIKE CAST(:searchId AS TEXT) || '%'";
+            params.addValue("searchId", searchId);
+        } else {
+            sql += " AND fecha BETWEEN :startDate AND :endDate";
+            params.addValue(PARAM_START_DATE, startDate)
+                    .addValue(PARAM_END_DATE, endDate);
+        }
         return Optional.ofNullable(namedJdbcTemplate.queryForObject(sql, params, Long.class)).orElse(0L);
     }
 

@@ -8,6 +8,7 @@ import com.centralizesys.model.sales.VentaResponse;
 import com.centralizesys.repository.MetodoPagoRepository;
 import com.centralizesys.security.SecurityUtils;
 import com.centralizesys.service.VentaService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +22,7 @@ public class VentaController {
     private final VentaService ventaService;
     private final MetodoPagoRepository metodoPagoRepository;
 
+    @Autowired
     public VentaController(VentaService ventaService, MetodoPagoRepository metodoPagoRepository) {
         this.ventaService = ventaService;
         this.metodoPagoRepository = metodoPagoRepository;
@@ -89,9 +91,10 @@ public class VentaController {
     public ResponseEntity<com.centralizesys.model.dto.PageResponse<Venta>> getAll(
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) Long searchId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ventaService.getVentasPage(startDate, endDate, page, size));
+        return ResponseEntity.ok(ventaService.getVentasPage(startDate, endDate, searchId, page, size));
     }
 
     @GetMapping("/pendientes")

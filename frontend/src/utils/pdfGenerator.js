@@ -125,22 +125,39 @@ export const generateReceipt = (saleData) => {
 
         // --- TABLE 2: DISCOUNTS SUMMARY (before payments, black header) ---
         const discountRows = [];
+        const hasReason = saleData.items.some(item => item.discount > 0 && item.reason);
 
         saleData.items.forEach(item => {
             const discount = item.discount || 0;
             if (discount > 0) {
-                discountRows.push([
-                    `${item.descripcion} (x${item.quantity})`,
-                    `-${formatMoney(discount * item.quantity)}`
-                ]);
+                if (hasReason) {
+                    discountRows.push([
+                        `${item.descripcion} (x${item.quantity})`,
+                        item.reason || '-',
+                        `-${formatMoney(discount * item.quantity)}`
+                    ]);
+                } else {
+                    discountRows.push([
+                        `${item.descripcion} (x${item.quantity})`,
+                        `-${formatMoney(discount * item.quantity)}`
+                    ]);
+                }
             }
         });
 
         if (saleData.globalDiscount > 0) {
-            discountRows.push([
-                'Descuento Global',
-                `-${formatMoney(saleData.globalDiscount)}`
-            ]);
+            if (hasReason) {
+                discountRows.push([
+                    'Descuento Global',
+                    '-',
+                    `-${formatMoney(saleData.globalDiscount)}`
+                ]);
+            } else {
+                discountRows.push([
+                    'Descuento Global',
+                    `-${formatMoney(saleData.globalDiscount)}`
+                ]);
+            }
         }
 
         if (discountRows.length > 0) {
@@ -148,14 +165,13 @@ export const generateReceipt = (saleData) => {
 
             autoTable(doc, {
                 startY: discountY,
-                head: [['Descuento', 'Monto']],
+                head: hasReason ? [['Descuento', 'Motivo', 'Monto']] : [['Descuento', 'Monto']],
                 body: discountRows,
                 theme: 'grid',
                 headStyles: { fillColor: [0, 0, 0], textColor: 255 },
-                columnStyles: {
-                    0: { cellWidth: 'auto' },
-                    1: { cellWidth: 40, halign: 'right' }
-                },
+                columnStyles: hasReason
+                    ? { 0: { cellWidth: 'auto' }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 40, halign: 'right' } }
+                    : { 0: { cellWidth: 'auto' }, 1: { cellWidth: 40, halign: 'right' } },
                 styles: { fontSize: 8, cellPadding: 1 },
             });
         }
@@ -310,22 +326,39 @@ export const generateDebtorReceipt = (debtorData) => {
 
         // --- TABLE 2: DISCOUNTS SUMMARY (black header, black font) ---
         const discountRows = [];
+        const hasReason = debtorData.items.some(item => item.discount > 0 && item.reason);
 
         debtorData.items.forEach(item => {
             const discount = item.discount || 0;
             if (discount > 0) {
-                discountRows.push([
-                    `${item.descripcion} (x${item.quantity})`,
-                    `-${formatMoney(discount * item.quantity)}`
-                ]);
+                if (hasReason) {
+                    discountRows.push([
+                        `${item.descripcion} (x${item.quantity})`,
+                        item.reason || '-',
+                        `-${formatMoney(discount * item.quantity)}`
+                    ]);
+                } else {
+                    discountRows.push([
+                        `${item.descripcion} (x${item.quantity})`,
+                        `-${formatMoney(discount * item.quantity)}`
+                    ]);
+                }
             }
         });
 
         if (debtorData.globalDiscount > 0) {
-            discountRows.push([
-                'Descuento Global',
-                `-${formatMoney(debtorData.globalDiscount)}`
-            ]);
+            if (hasReason) {
+                discountRows.push([
+                    'Descuento Global',
+                    '-',
+                    `-${formatMoney(debtorData.globalDiscount)}`
+                ]);
+            } else {
+                discountRows.push([
+                    'Descuento Global',
+                    `-${formatMoney(debtorData.globalDiscount)}`
+                ]);
+            }
         }
 
         if (discountRows.length > 0) {
@@ -333,14 +366,13 @@ export const generateDebtorReceipt = (debtorData) => {
 
             autoTable(doc, {
                 startY: discountY,
-                head: [['Descuento', 'Monto']],
+                head: hasReason ? [['Descuento', 'Motivo', 'Monto']] : [['Descuento', 'Monto']],
                 body: discountRows,
                 theme: 'grid',
                 headStyles: { fillColor: [0, 0, 0], textColor: 255 },
-                columnStyles: {
-                    0: { cellWidth: 'auto' },
-                    1: { cellWidth: 40, halign: 'right' }
-                },
+                columnStyles: hasReason
+                    ? { 0: { cellWidth: 'auto' }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 40, halign: 'right' } }
+                    : { 0: { cellWidth: 'auto' }, 1: { cellWidth: 40, halign: 'right' } },
                 styles: { fontSize: 8, cellPadding: 1 },
             });
         }
@@ -523,36 +555,52 @@ export const generatePendingSaleReceipt = (pedidoData) => {
 
         // --- TABLE 2: DISCOUNTS SUMMARY ---
         const discountRows = [];
+        const hasReason = pedidoData.items.some(item => item.discount > 0 && item.reason);
 
         pedidoData.items.forEach(item => {
             const discount = item.discount || 0;
             if (discount > 0) {
-                discountRows.push([
-                    `${item.descripcion} (x${item.quantity})`,
-                    `-${formatMoney(discount * item.quantity)}`
-                ]);
+                if (hasReason) {
+                    discountRows.push([
+                        `${item.descripcion} (x${item.quantity})`,
+                        item.reason || '-',
+                        `-${formatMoney(discount * item.quantity)}`
+                    ]);
+                } else {
+                    discountRows.push([
+                        `${item.descripcion} (x${item.quantity})`,
+                        `-${formatMoney(discount * item.quantity)}`
+                    ]);
+                }
             }
         });
 
         if (pedidoData.globalDiscount > 0) {
-            discountRows.push([
-                'Descuento Global',
-                `-${formatMoney(pedidoData.globalDiscount)}`
-            ]);
+            if (hasReason) {
+                discountRows.push([
+                    'Descuento Global',
+                    '-',
+                    `-${formatMoney(pedidoData.globalDiscount)}`
+                ]);
+            } else {
+                discountRows.push([
+                    'Descuento Global',
+                    `-${formatMoney(pedidoData.globalDiscount)}`
+                ]);
+            }
         }
 
         if (discountRows.length > 0) {
             let discountY = doc.lastAutoTable.finalY + 10;
             autoTable(doc, {
                 startY: discountY,
-                head: [['Descuento', 'Monto']],
+                head: hasReason ? [['Descuento', 'Motivo', 'Monto']] : [['Descuento', 'Monto']],
                 body: discountRows,
                 theme: 'grid',
                 headStyles: { fillColor: [0, 0, 0], textColor: 255 },
-                columnStyles: {
-                    0: { cellWidth: 'auto' },
-                    1: { cellWidth: 40, halign: 'right' }
-                },
+                columnStyles: hasReason
+                    ? { 0: { cellWidth: 'auto' }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 40, halign: 'right' } }
+                    : { 0: { cellWidth: 'auto' }, 1: { cellWidth: 40, halign: 'right' } },
                 styles: { fontSize: 8, cellPadding: 1 },
             });
         }

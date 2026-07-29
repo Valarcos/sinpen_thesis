@@ -217,6 +217,14 @@
     padding-bottom: calc(var(--bottom-nav-height) + var(--spacing-lg));
 }
 
+/* Explicit full-width override for wide tables */
+@media (min-width: 1441px) {
+    .main-content.full-width-page {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+}
+
 /* Main content padding synced with 3-zone breakpoint system */
 /* Zone 1: Large Laptops — reduce sides slightly but keep comfortable */
 @media (min-width: 1281px) and (max-width: 1440px) {

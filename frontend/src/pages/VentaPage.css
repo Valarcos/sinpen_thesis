@@ -241,7 +241,7 @@
 
 .cart-row-bottom {
     display: grid;
-    grid-template-columns: 32% max-content 1fr 28px;
+    grid-template-columns: 32% max-content max-content 1fr 28px;
     column-gap: 0.3rem;
     align-items: flex-end;
     font-size: 0.85rem;
@@ -718,7 +718,7 @@
     }
 
     .cart-row-bottom {
-        grid-template-columns: 32% max-content 1fr 32px;
+        grid-template-columns: 32% max-content max-content 1fr 32px;
     }
 
     .payment-item {
@@ -1002,4 +1002,25 @@
     .qty-invalid-warning {
         font-size: 0.72rem;
     }
+}
+
+.config-item-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+    transition: opacity 0.2s, transform 0.2s;
+    line-height: 1;
+}
+
+.config-item-btn:hover {
+    opacity: 1;
+    transform: rotate(45deg);
 }

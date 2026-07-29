@@ -78,6 +78,7 @@ class VentaRepositoryTest extends BaseIntegrationTest {
         det.setCantidad(2L);
         det.setPrecioLista(150.0);
         det.setDescuentoValor(0.0);
+        det.setRazonDescuento("Test Reason 1");
         det.setPrecioUnitario(150.0);
         det.setSubtotal(300.0);
 
@@ -90,6 +91,7 @@ class VentaRepositoryTest extends BaseIntegrationTest {
         assertThat(detalles.getFirst().getCodigoSnapshot()).isEqualTo("VENTA-001");
         assertThat(detalles.getFirst().getDescripcionSnapshot()).isEqualTo("Test Product Description");
         assertThat(detalles.getFirst().getCostoSnapshot()).isEqualTo(100.0);
+        assertThat(detalles.getFirst().getRazonDescuento()).isEqualTo("Test Reason 1");
     }
 
     @Test
@@ -260,6 +262,7 @@ class VentaRepositoryTest extends BaseIntegrationTest {
         det.setCantidad(1L);
         det.setPrecioLista(50.0);
         det.setDescuentoValor(5.0);
+        det.setRazonDescuento("Map Test Reason");
         det.setPrecioUnitario(45.0);
         det.setSubtotal(45.0);
         ventaRepository.saveDetalles(List.of(det));
@@ -276,6 +279,7 @@ class VentaRepositoryTest extends BaseIntegrationTest {
         assertThat(found.getCostoSnapshot()).isEqualTo(30.0);
         assertThat(found.getPrecioLista()).isEqualTo(50.0);
         assertThat(found.getDescuentoValor()).isEqualTo(5.0);
+        assertThat(found.getRazonDescuento()).isEqualTo("Map Test Reason");
         assertThat(found.getPrecioUnitario()).isEqualTo(45.0);
         assertThat(found.getSubtotal()).isEqualTo(45.0);
     }
@@ -294,7 +298,7 @@ class VentaRepositoryTest extends BaseIntegrationTest {
 
         // Act - Request page 0, size 1, range 2023-01-03 to 2023-01-04
         // Should order by date DESC, so C4 then C3
-        List<Venta> results = ventaRepository.findVentasByFechaBetween(LocalDateTime.parse("2023-01-03T00:00:00"), LocalDateTime.parse("2023-01-04T00:00:00"), 1, 0);
+        List<Venta> results = ventaRepository.findVentasByFechaBetween(LocalDateTime.parse("2023-01-03T00:00:00"), LocalDateTime.parse("2023-01-04T00:00:00"), null, 1, 0);
 
         // Assert
         assertThat(results).hasSize(1);
@@ -321,7 +325,7 @@ class VentaRepositoryTest extends BaseIntegrationTest {
         ventaRepository.saveVenta(pending);
 
         // Act
-        long count = ventaRepository.countVentasByFechaBetween(LocalDateTime.parse("2023-01-02T00:00:00"), LocalDateTime.parse("2023-01-03T00:00:00"));
+        long count = ventaRepository.countVentasByFechaBetween(LocalDateTime.parse("2023-01-02T00:00:00"), LocalDateTime.parse("2023-01-03T00:00:00"), null);
 
         // Assert - Should only count the 2 ACTIVA sales
         assertThat(count).isEqualTo(2);

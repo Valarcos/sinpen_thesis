@@ -16,6 +16,8 @@ public class ReportRepository {
     private static final String FECHA_FIELD = ":fechaField";
     private static final String INGRESOS_TOTALES = "ingresos_totales";
     private static final String GANANCIA_NETA = "ganancia_neta";
+    private static final String FECHA_CREACION = "vp.fecha_creacion";
+
 
     public ReportRepository(JdbcTemplate jdbcTemplate) {
         this.namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
@@ -30,6 +32,7 @@ public class ReportRepository {
                     venta_id,
                     COALESCE(SUM(costo_snapshot * cantidad), 0.0) as cogs_venta
                 FROM detalles_venta
+                WHERE anulado = false OR anulado IS NULL
                 GROUP BY venta_id
             )
             SELECT
@@ -57,6 +60,7 @@ public class ReportRepository {
                     venta_id,
                     COALESCE(SUM(costo_snapshot * cantidad), 0.0) as cogs_venta
                 FROM detalles_venta
+                WHERE anulado = false OR anulado IS NULL
                 GROUP BY venta_id
             )
             SELECT
@@ -138,6 +142,7 @@ public class ReportRepository {
                     COALESCE(SUM(costo_snapshot * cantidad), 0.0) AS cogs_venta,
                     COALESCE(SUM(cantidad), 0) AS qty_vendida
                 FROM detalles_venta
+                WHERE anulado = false OR anulado IS NULL
                 GROUP BY venta_id
             )
             SELECT
@@ -165,24 +170,44 @@ public class ReportRepository {
             ) AS deudas_pendientes
         """;
 
-        // Pending orders (ventas_pendientes) with estado = 'PENDIENTE' within the filtered period.
-        // Uses the same date params as the main revenue query (applied to the 'fecha_creacion' column).
         String pendingOrdersSql = """
             SELECT COALESCE(SUM(vp.total_venta), 0.0) AS ventas_pendientes
             FROM ventas vp
             WHERE vp.estado = 'PENDIENTE'
-        """ + dateFilter.replace(FECHA_FIELD, "vp.fecha_creacion");
+        """ + dateFilter.replace(FECHA_FIELD, FECHA_CREACION);
+
+        // Payments on pending orders in the period
+        String pagosPendingOrdersSql = """
+            SELECT (
+                COALESCE((
+                    SELECT SUM(pv.monto) 
+                    FROM pagos_venta pv 
+                    JOIN ventas vp ON pv.venta_id = vp.id 
+                    WHERE vp.estado = 'PENDIENTE' AND pv.anulado = false 
+                    """ + dateFilter.replace(FECHA_FIELD, FECHA_CREACION) + """
+                ), 0.0) +
+                COALESCE((
+                    SELECT SUM(ac.monto) 
+                    FROM alertas_cheques ac 
+                    JOIN ventas vp ON ac.venta_id = vp.id 
+                    WHERE vp.estado = 'PENDIENTE' AND ac.estado != 'ANULADA' 
+                    """ + dateFilter.replace(FECHA_FIELD, FECHA_CREACION) + """
+                ), 0.0)
+            ) AS pagos_pendientes
+        """;
 
         List<Map<String, Object>> revenueResult   = namedJdbcTemplate.queryForList(revenueSql, params);
         List<Map<String, Object>> purchaseResult  = namedJdbcTemplate.queryForList(purchaseSql, params);
         Double deudas                             = namedJdbcTemplate.queryForObject(debtSql, new MapSqlParameterSource(), Double.class);
         Double pendingOrders                      = namedJdbcTemplate.queryForObject(pendingOrdersSql, params, Double.class);
+        Double pagosPending                       = namedJdbcTemplate.queryForObject(pagosPendingOrdersSql, params, Double.class);
 
         Map<String, Object> revenueRow  = revenueResult.isEmpty()  ? Map.of() : revenueResult.getFirst();
         Map<String, Object> purchaseRow = purchaseResult.isEmpty() ? Map.of() : purchaseResult.getFirst();
 
-        double ingresosVentas        = safeDouble(revenueRow, "ingresos_ventas");
-        double ventasPendientesVal   = pendingOrders != null ? pendingOrders : 0.0;
+        double pagosPendingVal       = pagosPending != null ? pagosPending : 0.0;
+        double ingresosVentas        = safeDouble(revenueRow, "ingresos_ventas") + pagosPendingVal;
+        double ventasPendientesVal   = (pendingOrders != null ? pendingOrders : 0.0) - pagosPendingVal;
         double ventasTotalesProyect  = Math.round((ingresosVentas + ventasPendientesVal) * 100.0) / 100.0;
 
         return new com.centralizesys.model.sales.ReportesEstadisticasDTO.RendimientoComercial(

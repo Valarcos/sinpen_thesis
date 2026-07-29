@@ -42,6 +42,7 @@ public class VentaRequest {
         // For this rule, we stick to Discount Logic:
 
         private Double valorDescuento = 0.0;
+        private String razonDescuento;
     }
 
     @Data
