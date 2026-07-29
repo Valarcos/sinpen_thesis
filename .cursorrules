@@ -37,6 +37,7 @@
     *   **Constraint Violations:** Must explicitly catch `DataIntegrityViolationException` (Unique/FK violations).
     *   **Nulls:** Do not use `Optional.get()` without `orElseThrow()`.
 *   **React Hook Refactoring (Temporal Dead Zone):** Whenever converting a standard `function` into a `const` arrow function (e.g. wrapping with `useCallback`), you MUST explicitly verify that the new `const` definition physically precedes ALL `useEffect` blocks or other hooks that reference it. Never introduce `ReferenceError: Cannot access before initialization` bugs.
+*   **React Defensive Programming:** Good and standard defensive programming MUST be used in React. Always guard against `undefined` or empty states during initial render cycles before `useEffect` hooks populate data (e.g., `if (!item || array.length === 0) return null;` or conditional rendering).
 
 ---
 

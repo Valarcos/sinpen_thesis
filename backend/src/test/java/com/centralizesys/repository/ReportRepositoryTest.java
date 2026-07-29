@@ -113,4 +113,53 @@ class ReportRepositoryTest extends BaseIntegrationTest {
         assertThat(rc.getVentasPendientes()).isEqualTo(0.0);
         assertThat(rc.getVentasTotalesProyectadas()).isEqualTo(0.0);
     }
+
+    @Test
+    @DisplayName("getEstadisticas - payments on pending sales are deducted from ventasPendientes and added to ingresosVentas")
+    void getEstadisticas_ventasPendientes_deductsPaymentsAndAddsToIngresos() {
+        // Arrange
+        int year = 2026;
+        int month = 12;
+        int day = 10;
+
+        jdbcTemplate.update("DELETE FROM ventas WHERE fecha::date = '2026-12-10' OR fecha_creacion::date = '2026-12-10'");
+        jdbcTemplate.update("DELETE FROM pagos_venta");
+        jdbcTemplate.update("DELETE FROM alertas_cheques");
+
+        // 1 Active Sale for $1000
+        jdbcTemplate.update("""
+            INSERT INTO ventas (fecha, fecha_creacion, cliente_nombre, total_venta, estado)
+            VALUES ('2026-12-10 10:00:00', '2026-12-10 10:00:00', 'Active Client', 1000.0, 'ACTIVA')
+        """);
+
+        // 1 Pending Sale for $500
+        // We need to fetch its ID to associate payments.
+        jdbcTemplate.update("""
+            INSERT INTO ventas (id, fecha, fecha_creacion, cliente_nombre, total_venta, estado)
+            VALUES (9999, '2026-12-10 11:00:00', '2026-12-10 11:00:00', 'Pending Client', 500.0, 'PENDIENTE')
+        """);
+
+        // A $100 cash payment for the pending sale
+        jdbcTemplate.update("""
+            INSERT INTO pagos_venta (venta_id, metodo_pago_id, monto, fecha_pago, anulado)
+            VALUES (9999, 1, 100.0, '2026-12-10 11:30:00', false)
+        """);
+
+        // A $50 pending cheque for the pending sale
+        jdbcTemplate.update("""
+            INSERT INTO alertas_cheques (venta_id, monto, fecha_cobro, estado)
+            VALUES (9999, 50.0, '2026-12-20', 'PENDIENTE')
+        """);
+
+        // Act
+        ReportesEstadisticasDTO dto = reportRepository.getEstadisticas(year, month, day);
+        ReportesEstadisticasDTO.RendimientoComercial rc = dto.getRendimientoComercial();
+
+        // Assert
+        // ingresos_ventas should be 1000 (active) + 150 (paid towards pending) = 1150
+        assertThat(rc.getIngresosVentas()).isEqualTo(1150.0);
+
+        // ventasPendientes should be 500 (total) - 150 (paid) = 350
+        assertThat(rc.getVentasPendientes()).isEqualTo(350.0);
+    }
 }

@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import StockWarningModal from '../components/StockWarningModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CheckoutChequeModal from '../components/CheckoutChequeModal';
+import ProductConfigModal from '../components/ProductConfigModal';
 import { generateReceipt } from '../utils/pdfGenerator';
 import { blockNonNumericKeys, blockNonIntegerKeys, sanitizeNumericPaste, sanitizeIntegerPaste, enforceMoneyFormat } from '../utils/numericInput';
 import './VentaPage.css';
@@ -65,6 +66,7 @@ export default function VentaPage() {
         updateProductData, // Adding just in case existing code relies on it
         updateMultipleProductsData,
         updateItemDiscount, // New
+        updateItemSubItems, // New
         globalDiscount, // New
         setGlobalDiscount, // New
         removeFromCart,
@@ -155,6 +157,9 @@ export default function VentaPage() {
     // Cheque Modal State
     const [showChequeModal, setShowChequeModal] = useState(false);
     const [pendingChequeAmount, setPendingChequeAmount] = useState(0);
+
+    const [configModalOpen, setConfigModalOpen] = useState(false);
+    const [configModalItem, setConfigModalItem] = useState(null);
 
     // Req 4: Ref for payment amount input — enables auto-focus + select when a method is chosen.
     const paymentAmountRef = useRef(null);
@@ -318,11 +323,21 @@ export default function VentaPage() {
                 clienteNombre: clientName,
                 tipoVenta: saleType,
                 descuentoGlobal: globalDiscount,
-                items: cartItems.map(item => ({
-                    productoId: item.product.id,
-                    cantidad: item.quantity,
-                    valorDescuento: item.discount || 0
-                })),
+                items: cartItems.flatMap(item => {
+                    if (item.subItems && item.subItems.length > 0) {
+                        return item.subItems.map(sub => ({
+                            productoId: item.product.id,
+                            cantidad: sub.quantity,
+                            valorDescuento: sub.discount || 0,
+                            razonDescuento: sub.reason || null
+                        }));
+                    }
+                    return [{
+                        productoId: item.product.id,
+                        cantidad: item.quantity,
+                        valorDescuento: item.discount || 0
+                    }];
+                }),
                 pagos: pagosPayload,
                 cheques: chequesPayload.length > 0 ? chequesPayload : undefined
             };
@@ -361,12 +376,24 @@ export default function VentaPage() {
                 client: clientName,
                 user: localStorage.getItem('userName') || 'Sistema',
                 saleType: saleType,
-                items: cartItems.map(i => ({
-                    ...i.product,
-                    quantity: i.quantity,
-                    unitPrice: i.unitPrice,
-                    discount: i.discount
-                })),
+                items: cartItems.flatMap(i => {
+                    if (i.subItems && i.subItems.length > 0) {
+                        return i.subItems.map(sub => ({
+                            ...i.product,
+                            quantity: sub.quantity,
+                            unitPrice: i.unitPrice,
+                            discount: sub.discount,
+                            reason: sub.reason
+                        }));
+                    }
+                    return [{
+                        ...i.product,
+                        quantity: i.quantity,
+                        unitPrice: i.unitPrice,
+                        discount: i.discount,
+                        reason: i.reason || null
+                    }];
+                }),
                 payments: payments,
                 total: totals.total,
                 globalDiscount: globalDiscount
@@ -414,11 +441,21 @@ export default function VentaPage() {
                 clienteNombre: clientName,
                 tipoVenta: saleType,
                 descuentoGlobal: globalDiscount,
-                items: cartItems.map(item => ({
-                    productoId: item.product.id,
-                    cantidad: item.quantity,
-                    valorDescuento: item.discount || 0
-                })),
+                items: cartItems.flatMap(item => {
+                    if (item.subItems && item.subItems.length > 0) {
+                        return item.subItems.map(sub => ({
+                            productoId: item.product.id,
+                            cantidad: sub.quantity,
+                            valorDescuento: sub.discount || 0,
+                            razonDescuento: sub.reason || null
+                        }));
+                    }
+                    return [{
+                        productoId: item.product.id,
+                        cantidad: item.quantity,
+                        valorDescuento: item.discount || 0
+                    }];
+                }),
                 pagos: pagosPayload,
                 cheques: chequesPayload.length > 0 ? chequesPayload : undefined
             };
@@ -977,6 +1014,16 @@ export default function VentaPage() {
                             {/* Row 2: Price, Qty Controls, Total, Remove */}
                             <div className="cart-row cart-row-bottom">
                                 <span className="price-label">{formatCurrency(item.unitPrice)}</span>
+                                <button
+                                    className="config-item-btn"
+                                    onClick={() => {
+                                        setConfigModalItem(item);
+                                        setConfigModalOpen(true);
+                                    }}
+                                    title="Configurar precios por cantidad"
+                                >
+                                    ⚙️
+                                </button>
                                 <div className="cart-item-qty">
                                     {/* Req 1: [-] button disabled when local display value is empty/0 */}
                                     <button
@@ -1290,6 +1337,21 @@ export default function VentaPage() {
                 {/* Tab switching is now handled by the contextual bottom-nav in AppLayout */}
             </div>
 
+            {configModalOpen && configModalItem && (
+                <ProductConfigModal
+                    isOpen={configModalOpen}
+                    item={configModalItem}
+                    onClose={() => {
+                        setConfigModalOpen(false);
+                        setConfigModalItem(null);
+                    }}
+                    onSave={(productId, newSubItems) => {
+                        updateItemSubItems(productId, newSubItems);
+                        setConfigModalOpen(false);
+                        setConfigModalItem(null);
+                    }}
+                />
+            )}
         </div>
     );
 }

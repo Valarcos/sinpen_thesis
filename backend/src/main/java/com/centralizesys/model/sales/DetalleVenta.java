@@ -20,6 +20,7 @@ public class DetalleVenta {
 
     private Double precioLista; // Original Price
     private Double descuentoValor; // The input value
+    private String razonDescuento; // Reason for the specific discount
 
     private Double precioUnitario; // Final Price
     private Double subtotal;

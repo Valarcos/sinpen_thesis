@@ -77,6 +77,12 @@ export default function useCart() {
         ));
     }, []);
 
+    const updateItemSubItems = useCallback((productId, newSubItems) => {
+        setCartItems(prev => prev.map(item =>
+            item.product.id === productId ? { ...item, subItems: newSubItems } : item
+        ));
+    }, []);
+
     const removeFromCart = useCallback((productId) => {
         setCartItems(prev => prev.filter(item => item.product.id !== productId));
     }, []);
@@ -181,6 +187,7 @@ export default function useCart() {
         updateProductData,
         updateMultipleProductsData,
         updateItemDiscount, // New
+        updateItemSubItems, // New
         globalDiscount, // New
         setGlobalDiscount, // New
         removeFromCart,

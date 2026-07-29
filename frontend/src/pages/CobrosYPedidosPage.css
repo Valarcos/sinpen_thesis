@@ -1,222 +1,311 @@
 /* =============================================================================
    CobrosYPedidosPage.css
-   Extends SalesHistoryPage.css (imported before this file in CobrosYPedidosPage.jsx).
-   All rules are scoped to .cobros-table to avoid overriding the standard
-   SalesHistoryPage table.
+   Dedicated styles for the Pending Sales page. Decoupled from SalesHistoryPage.
    =============================================================================*/
 
-/* Override padding for the pending sales table only.
-   SalesHistoryPage uses 1rem which is too wide for the additional columns. */
-.cobros-table th,
-.cobros-table td {
-    padding: 0.5rem 0.4rem;
+/* =============================================================================
+   1. BASE PAGE & HEADER
+   ============================================================================= */
+.cobros-page {
+    background-color: var(--background-color);
+    max-width: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
 }
 
-/* ─── Column width constraints ─────────────────────────────────────────────
-   Applied via className on <th> elements in CobrosYPedidosPage.jsx.
-   The browser honours these as hints within the table-layout: auto algorithm.
-   ─────────────────────────────────────────────────────────────────────────*/
+.cobros-header,
+.cobros-page > .sale-type-toggle,
+.cobros-page > :not(.cobros-table-container):not(p) {
+    padding-left: var(--spacing-md);
+    padding-right: var(--spacing-md);
+}
 
-/* FECHA: date already splits into 2 lines — tighten to remove dead space */
+.cobros-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.cobros-header h1 {
+    margin-bottom: 0;
+}
+
+/* =============================================================================
+   2. BASE TABLE SKELETON
+   ============================================================================= */
+.cobros-table-container {
+    width: 100%;
+}
+
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.cobros-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+}
+
+.cobros-table th,
+.cobros-table td {
+    padding: 0.6rem 0.5rem; /* Comfortable base padding */
+    text-align: left;
+    border-bottom: 1px solid #dee2e6;
+    border-right: 1px solid #f0f0f0;
+}
+
+/* Default standard font sizes for high-density reading */
+.cobros-table td {
+    font-size: 0.85rem;
+}
+.cobros-table th {
+    font-size: 0.8rem;
+    background-color: var(--color-primary);
+    font-weight: bold;
+    color: white;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cobros-table td:last-child,
+.cobros-table th:last-child {
+    border-right: none;
+}
+
+.cobros-table tr:nth-child(even) { background-color: #f8f9fa; }
+.cobros-table tr:hover { background-color: #e9ecef; transition: background-color 0.2s ease; }
+
+.cobros-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.amount-cell {
+    font-weight: bold;
+    color: var(--text-color);
+    white-space: nowrap;
+}
+
+/* ─── Column width constraints ───────────────────────────────────────────── */
 .col-pendiente-fecha {
     width: 80px;
     white-space: normal;
 }
-
-/* TIPO: short pill content (Cheque / Seña) — can be narrow */
-.col-pendiente-tipo {
-    width: 64px;
-}
-
-/* ESTADO: short pill content (PENDIENTE / PARCIAL) */
-.col-pendiente-estado {
-    width: 90px;
-}
-
-/* VENTA: badge pill (MINORISTA / MAYORISTA) */
-.col-pendiente-venta {
-    width: 90px;
-}
-
-/* PRODUCTOS: numeric count — very compact */
+.col-pendiente-tipo { width: 64px; }
+.col-pendiente-estado { width: 90px; }
+.col-pendiente-venta { width: 90px; }
 .col-pendiente-productos {
     width: 60px;
+}
+.cobros-table td.col-pendiente-productos,
+.cobros-table th.col-pendiente-productos {
     text-align: center;
+}
+.cobros-table th:last-child {
+    width: 14%;
+    min-width: 140px;
 }
 
 /* =============================================================================
-   Payment Modal (Registrar Pago)
-   Scoped classes to enforce layout consistency and responsiveness without inline patches.
-   =============================================================================*/
+   3. STATUS PILLS & LABELS
+   ============================================================================= */
+.cobros-table .status-pill,
+.cobros-table .badge {
+    display: inline-block;
+    padding: 0.15rem 0.35rem; /* Extremely tight padding to save horizontal space */
+    font-size: 0.8rem; /* Restored font size for legibility */
+    border-radius: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    line-height: 1.2;
+}
+.status-pagado  { background-color: #d1fae5; color: #065f46; }
+.status-parcial { background-color: #fef3c7; color: #92400e; }
+.status-pendiente { background-color: #fee2e2; color: #b91c1c; }
 
-.payment-modal-container {
-    background: white;
-    border-radius: var(--border-radius);
-    box-shadow: var(--box-shadow-hover);
-    padding: 6px; /* Reduced from 12px (half) */
-    max-width: 700px;
-    width: 90%;
-    animation: slideUp 0.3s ease;
+/* =============================================================================
+   4. ACTION BUTTONS
+   ============================================================================= */
+.action-buttons {
     display: flex;
     flex-direction: column;
-    gap: 6px; /* Reduced from 8px */
-}
-
-.payment-modal-header {
-    background-color: var(--color-primary);
-    color: white;
-    padding: 6px 12px; /* Adjusted header padding */
-    margin: -6px -6px 0 -6px; /* Matches container padding */
-    border-radius: 8px 8px 0 0;
-}
-
-.payment-modal-header h3 {
-    margin: 0;
-    color: white;
-}
-
-.payment-modal-info {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    padding: 6px 12px; /* Tighter vertical padding */
-    background-color: #f9fafb;
-    border-radius: 4px;
-}
-
-.payment-modal-info div {
-    margin: 0;
-    line-height: 1.2;
-}
-
-.payment-modal-form {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px; /* Matches container gap */
-}
-
-.payment-modal-input-full {
-    width: 100%;
-    padding: 4px 6px !important; /* Tighter input padding, override global spacing */
-    margin-bottom: 0 !important; /* Override global index.css margin */
-    font-size: 0.95em;
-    height: auto;
-}
-
-/* Reduce the row height for elements inside the dropdown list */
-.payment-modal-input-full option {
-    padding: 2px 6px;
-    font-size: 0.95em;
-    min-height: 1.2em;
-}
-
-.payment-modal-btn-add {
-    width: 100%;
-    background-color: #6c757d;
-    color: white;
-    border: 2px solid #5a6268;
-    padding: 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-weight: bold;
-    transition: background-color 0.2s;
-}
-
-.payment-modal-btn-add:hover:not(:disabled) {
-    background-color: #5a6268;
-}
-
-.payment-modal-btn-add:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.payment-modal-list-container {
-    border: 1px solid #ddd;
-    padding: 4px 8px; /* Reduced from 12px to minimize perceived gaps */
-    border-radius: 4px;
-    background-color: #fafafa;
-}
-
-.payment-modal-list-container.cheques-list {
-    border-color: #14b8a6;
-    background-color: #f0fdfa;
-}
-
-.payment-modal-list-container h5 {
-    margin-top: 0;
-    margin-bottom: 4px; /* Reduced from 8px */
-    color: #555;
-}
-
-.payment-modal-list-container.cheques-list h5 {
-    color: #0f766e;
-}
-
-.payment-modal-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    max-height: 100px; /* Reduced from 120px so normal lists show ~3 rows */
-    overflow-y: auto;  /* Enables smooth scrolling */
-}
-
-.payment-modal-list li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid #eee;
-    padding: 2px 8px; /* Reduced vertical padding from 6px to 2px for tight fit */
-    font-size: 0.9rem;
-}
-
-.payment-modal-list li:nth-child(even) {
-    background-color: #f8f9fa;
-}
-
-/* Overrides the global min-height: 48px in index.css for inline list buttons */
-.payment-modal-list-btn {
-    min-height: auto;
-    padding: 0px 6px !important;
-    font-size: 0.85rem;
-    line-height: 1.2;
-}
-
-.payment-modal-list.cheques-list {
-    max-height: 140px; /* Increased to allow 4 rows for cheques specifically */
-}
-
-.payment-modal-list.cheques-list li {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
     gap: 4px;
-    flex-wrap: nowrap;
-    border-bottom: 1px solid #ccfbf1;
-    background-color: transparent;
-    padding: 4px 6px;
 }
-
-.payment-modal-actions {
+.action-buttons-row {
     display: flex;
-    gap: 6px; /* Matches container gap */
-    justify-content: flex-end;
-    margin-top: -2px; /* Pulled slightly up to reduce gap between list and buttons */
+    gap: 4px;
 }
 
-/* Responsiveness */
+.cobros-table .btn-details,
+.cobros-table .btn-pay,
+.cobros-table .btn-print,
+.cobros-table .btn-delete {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    min-height: 32px;
+    white-space: nowrap;
+}
+
+.cobros-table .btn-details { background-color: var(--color-primary); color: white; }
+.cobros-table .btn-details:hover { background-color: #003366; }
+
+.cobros-table .btn-pay { background-color: var(--color-success); color: white; }
+.cobros-table .btn-pay:hover:not(:disabled) { background-color: #005c32; }
+.cobros-table .btn-pay:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.cobros-table .btn-print { background-color: #3b82f6; color: white; }
+.cobros-table .btn-print:hover { background-color: #2563eb; }
+
+.cobros-table .btn-delete { background-color: var(--color-error); color: white; }
+.cobros-table .btn-delete:hover:not(:disabled) { background-color: #b91c1c; }
+.cobros-table .btn-delete:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* =============================================================================
+   5. GRANULAR COMPRESSION LADDER (Desktop -> Tablet)
+   ============================================================================= */
+
+/* Zone 1 (1351px - 1440px): Minor padding reduction */
+@media (min-width: 1351px) and (max-width: 1440px) {
+    .cobros-table th, .cobros-table td { padding: 0.5rem 0.35rem; }
+}
+
+/* Zone 2 (1201px - 1350px): Further padding reduction, button padding shrinks */
+@media (min-width: 1201px) and (max-width: 1350px) {
+    .cobros-table th, .cobros-table td { padding: 0.45rem 0.25rem; }
+    .cobros-table .btn-details, .cobros-table .btn-pay, .cobros-table .btn-print, .cobros-table .btn-delete {
+        padding: 0.3rem 0.35rem;
+    }
+}
+
+/* Zone 3 (1025px - 1200px): Max compression before mobile switch (Matching SalesHistory) */
+@media (min-width: 1025px) and (max-width: 1200px) {
+    .cobros-table td { font-size: 0.8rem; padding: 0.35rem 0.15rem; }
+    .cobros-table th { font-size: 0.75rem; padding: 0.35rem 0.15rem; }
+    .cobros-table .status-pill, .cobros-table .badge { font-size: 0.75rem; padding: 0.1rem 0.25rem; }
+    .action-buttons-row { gap: 3px; }
+    .cobros-table .btn-details, .cobros-table .btn-pay, .cobros-table .btn-print, .cobros-table .btn-delete {
+        padding: 0.2rem 0.25rem; font-size: 0.75rem; min-height: 30px; letter-spacing: -0.1px;
+    }
+}
+
+/* =============================================================================
+   6. MOBILE CARD LAYOUT (≤ 1024px) - Lifted from 768px to prevent extreme zooming bleeds
+   ============================================================================= */
+@media (max-width: 1024px) {
+    .cobros-page { padding: 0.5rem !important; }
+    .cobros-header { flex-direction: column; align-items: flex-start; gap: 1rem; }
+    .table-responsive { border-radius: 0; box-shadow: none; overflow: visible; }
+
+    .cobros-table, .cobros-table thead, .cobros-table tbody, .cobros-table th, .cobros-table td, .cobros-table tr {
+        display: block;
+    }
+    .cobros-table thead tr { position: absolute; top: -9999px; left: -9999px; }
+
+    .cobros-table tr {
+        background-color: white; border: 1px solid #dee2e6; border-radius: 8px;
+        margin-bottom: 1rem; padding: 1rem; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .cobros-table td {
+        display: block; text-align: right; border: none; border-bottom: 1px solid #eee;
+        position: relative; padding-top: 0.5rem; padding-bottom: 0.5rem; padding-left: 50%;
+        font-size: 0.9rem; /* Reset font size for mobile cards */
+    }
+    .cobros-table td:last-child {
+        border-bottom: none; padding-top: 1rem; margin-top: 0.5rem; border-top: 1px solid #eee; padding-left: 0; text-align: center;
+    }
+
+    .cobros-table td::before {
+        content: attr(data-label); font-weight: 600; color: #6c757d; text-align: left;
+        position: absolute; top: 0.5rem; left: 0.5rem; width: 45%; padding-right: 10px; white-space: nowrap;
+    }
+
+    .action-buttons { flex-direction: column; width: 100%; gap: 0.5rem; }
+    .action-buttons-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; width: 100%; }
+
+    /* Make Finalizar and Cancelar span full width if needed, or stay side-by-side */
+    .cobros-table .btn-details, .cobros-table .btn-pay, .cobros-table .btn-print, .cobros-table .btn-delete {
+        font-size: 0.85rem; padding: 0.5rem; min-height: 36px; letter-spacing: normal;
+    }
+    .col-pendiente-productos { text-align: right; }
+}
+
+/* =============================================================================
+   7. MODALS (Payment & Cheques)
+   =============================================================================*/
+.payment-modal-container {
+    background: white; border-radius: var(--border-radius); box-shadow: var(--box-shadow-hover);
+    padding: 6px; max-width: 700px; width: 90%; animation: slideUp 0.3s ease;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.payment-modal-header {
+    background-color: var(--color-primary); color: white; padding: 6px 12px;
+    margin: -6px -6px 0 -6px; border-radius: 8px 8px 0 0;
+}
+.payment-modal-header h3 { margin: 0; color: white; }
+.payment-modal-info {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    padding: 6px 12px; background-color: #f9fafb; border-radius: 4px;
+}
+.payment-modal-info div { margin: 0; line-height: 1.2; }
+.payment-modal-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.payment-modal-input-full {
+    width: 100%; padding: 4px 6px !important; margin-bottom: 0 !important; font-size: 0.95em; height: auto;
+}
+.payment-modal-input-full option { padding: 2px 6px; font-size: 0.95em; min-height: 1.2em; }
+.payment-modal-btn-add {
+    width: 100%; background-color: #6c757d; color: white; border: 2px solid #5a6268;
+    padding: 10px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background-color 0.2s;
+}
+.payment-modal-btn-add:hover:not(:disabled) { background-color: #5a6268; }
+.payment-modal-btn-add:disabled { opacity: 0.6; cursor: not-allowed; }
+.payment-modal-list-container {
+    border: 1px solid #ddd; padding: 4px 8px; border-radius: 4px; background-color: #fafafa;
+}
+.payment-modal-list-container.cheques-list { border-color: #14b8a6; background-color: #f0fdfa; }
+.payment-modal-list-container h5 { margin-top: 0; margin-bottom: 4px; color: #555; }
+.payment-modal-list-container.cheques-list h5 { color: #0f766e; }
+.payment-modal-list {
+    list-style: none; padding: 0; margin: 0; max-height: 100px; overflow-y: auto;
+}
+.payment-modal-list li {
+    display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee;
+    padding: 2px 8px; font-size: 0.9rem;
+}
+.payment-modal-list li:nth-child(even) { background-color: #f8f9fa; }
+.payment-modal-list-btn { min-height: auto; padding: 0px 6px !important; font-size: 0.85rem; line-height: 1.2; }
+.payment-modal-list.cheques-list { max-height: 140px; }
+.payment-modal-list.cheques-list li {
+    display: flex; flex-direction: row; align-items: center; justify-content: space-between;
+    gap: 4px; flex-wrap: nowrap; border-bottom: 1px solid #ccfbf1; background-color: transparent; padding: 4px 6px;
+}
+.payment-modal-actions {
+    display: flex; gap: 6px; justify-content: flex-end; margin-top: -2px;
+}
+
+/* Modals Mobile Adjustments */
 @media (max-width: 600px) {
-    .payment-modal-info {
-        grid-template-columns: 1fr;
-    }
-    .payment-modal-form {
-        grid-template-columns: 1fr;
-    }
-    .payment-modal-actions {
-        flex-direction: column;
-    }
-    .payment-modal-actions button {
-        width: 100%;
-    }
+    .payment-modal-info { grid-template-columns: 1fr; gap: 4px; }
+    .payment-modal-form { grid-template-columns: 1fr; }
+    .payment-modal-list.cheques-list li { flex-direction: column; align-items: flex-start; gap: 8px; padding: 8px 6px; }
+    .payment-modal-actions { width: 100%; justify-content: space-between; margin-top: 4px; }
 }

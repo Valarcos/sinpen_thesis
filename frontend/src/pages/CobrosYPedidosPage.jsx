@@ -10,8 +10,7 @@ import CobrarChequesModal from '../components/CobrarChequesModal';
 import CheckoutChequeModal from '../components/CheckoutChequeModal';
 import { generateDebtorReceipt, generatePendingSaleReceipt } from '../utils/pdfGenerator';
 import { blockNonNumericKeys, sanitizeNumericPaste, enforceMoneyFormat } from '../utils/numericInput';
-import './SalesHistoryPage.css'; // Reusing CSS for table responsive cards
-import './CobrosYPedidosPage.css'; // Scoped overrides for padding and column widths
+import './CobrosYPedidosPage.css'; // Dedicated CSS for Pending Sales
 
 export default function CobrosYPedidosPage() {
     const location = useLocation();
@@ -20,6 +19,7 @@ export default function CobrosYPedidosPage() {
     // 'ALL' | 'CHEQUE' | 'PEDIDO'  — NOTE: old FIADO rows stay as 'FIADO' in DB; CHEQUE is the new discriminator
     const [filterType, setFilterType] = useState(location.state?.filter || 'ALL');
     const [sortConfig, setSortConfig] = useState({ key: 'fecha_creacion', direction: 'desc' });
+    const [searchId, setSearchId] = useState('');
     const [loading, setLoading] = useState(true);
     // CobrarChequesModal state
     const [showCobrarChequesModal, setShowCobrarChequesModal] = useState(false);
@@ -459,6 +459,7 @@ export default function CobrosYPedidosPage() {
                     quantity: d.cantidad,
                     unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
+                    reason: d.razonDescuento || null,
                     subtotal: d.subtotal
                 })),
                 pagosDeuda: pagos,
@@ -507,6 +508,7 @@ export default function CobrosYPedidosPage() {
                     quantity: d.cantidad,
                     unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
+                    reason: d.razonDescuento || null,
                     subtotal: d.subtotal
                 })),
                 pagos: enrichedPagos,
@@ -622,10 +624,21 @@ export default function CobrosYPedidosPage() {
                 ? sortedItems.filter(i => i.tipo === 'PEDIDO' && !i.has_cheque)
                 : sortedItems.filter(i => i.tipo === filterType);
 
+    const filteredAndSearchedItems = searchId
+        ? displayedItems.filter(i => i.id_referencia?.toString().startsWith(searchId))
+        : displayedItems;
+
     return (
-        <div className="history-page container">
-            <div className="history-header">
+        <div className="cobros-page container">
+            <div className="cobros-header" style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
                 <h1>Cobros y Pedidos</h1>
+                <input
+                    type="text"
+                    value={searchId}
+                    onChange={(e) => setSearchId(e.target.value.replace(/\\D/g, ''))}
+                    placeholder="Filtrar por ID de venta"
+                    style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', minWidth: '200px' }}
+                />
             </div>
 
             {/* Filter Tabs
@@ -664,195 +677,197 @@ export default function CobrosYPedidosPage() {
             </div>
 
             {loading ? (
-                <p>Cargando...</p>
+                <div style={{ textAlign: 'center', padding: '2rem' }}>Cargando...</div>
             ) : (
-                <div className="table-responsive">
-                    <table className="history-table cobros-table">
-                        <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th onClick={() => handleSort('cliente_nombre')} style={{cursor: 'pointer'}}>Cliente{getSortIndicator('cliente_nombre')}</th>
-                            <th onClick={() => handleSort('fecha_creacion')} style={{cursor: 'pointer'}} className="col-pendiente-fecha">Fecha{getSortIndicator('fecha_creacion')}</th>
-                            <th className="col-pendiente-tipo">Tipo</th>
-                            <th className="col-pendiente-venta">Venta</th>
-                            <th className="col-pendiente-productos">Productos</th>
-                            <th>Costo Total</th>
-                            <th onClick={() => handleSort('monto_total')} style={{cursor: 'pointer'}}>Monto Total{getSortIndicator('monto_total')}</th>
-                            <th>Monto Pagado</th>
-                            <th>Saldo Restante</th>
-                            <th onClick={() => handleSort('fecha_cobro')} style={{cursor: 'pointer'}} className="col-pendiente-estado">Estado{getSortIndicator('fecha_cobro')}</th>
-                            <th>Acciones</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        {displayedItems.map((item, index) => {
-                            // A PEDIDO is in an illegal overpaid state when the sum of all payments
-                            // (cash + cheques) already exceeds the sale total. This can happen when
-                            // a cashier reduces a cart total after payments were registered.
-                            const isOverpaid = item.tipo === 'PEDIDO' && item.monto_pagado > item.monto_total + 0.01;
+                <div className="cobros-table-container">
+                    <div className="table-responsive">
+                        <table className="cobros-table">
+                            <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th onClick={() => handleSort('cliente_nombre')} style={{cursor: 'pointer'}}>Cliente{getSortIndicator('cliente_nombre')}</th>
+                                <th onClick={() => handleSort('fecha_creacion')} style={{cursor: 'pointer'}} className="col-pendiente-fecha">Fecha{getSortIndicator('fecha_creacion')}</th>
+                                <th className="col-pendiente-tipo">Tipo</th>
+                                <th className="col-pendiente-venta">Venta</th>
+                                <th className="col-pendiente-productos">Productos</th>
+                                <th>Costo Total</th>
+                                <th onClick={() => handleSort('monto_total')} style={{cursor: 'pointer'}}>Monto Total{getSortIndicator('monto_total')}</th>
+                                <th>Monto Pagado</th>
+                                <th>Saldo Restante</th>
+                                <th onClick={() => handleSort('fecha_cobro')} style={{cursor: 'pointer'}} className="col-pendiente-estado">Estado{getSortIndicator('fecha_cobro')}</th>
+                                <th>Acciones</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {filteredAndSearchedItems.map((item, index) => {
+                                // A PEDIDO is in an illegal overpaid state when the sum of all payments
+                                // (cash + cheques) already exceeds the sale total. This can happen when
+                                // a cashier reduces a cart total after payments were registered.
+                                const isOverpaid = item.tipo === 'PEDIDO' && item.monto_pagado > item.monto_total + 0.01;
 
-                            let rowStyle = {};
-                            if (isOverpaid) {
-                                rowStyle = { backgroundColor: '#fff7ed', borderLeft: '4px solid #f59e0b' }; // Amber — illegal overpaid state
-                            } else if ((item.tipo === 'FIADO' || item.tipo === 'CHEQUE' || (item.tipo === 'PEDIDO' && item.has_cheque)) && item.fecha_cobro) {
-                                const today = new Date();
-                                today.setHours(0, 0, 0, 0);
-                                const fechaCobro = new Date(item.fecha_cobro);
-                                // Workaround for timezone issue when creating Date from string
-                                fechaCobro.setMinutes(fechaCobro.getMinutes() + fechaCobro.getTimezoneOffset());
-                                fechaCobro.setHours(0,0,0,0);
+                                let rowStyle = {};
+                                if (isOverpaid) {
+                                    rowStyle = { backgroundColor: '#fff7ed', borderLeft: '4px solid #f59e0b' }; // Amber — illegal overpaid state
+                                } else if ((item.tipo === 'FIADO' || item.tipo === 'CHEQUE' || (item.tipo === 'PEDIDO' && item.has_cheque)) && item.fecha_cobro) {
+                                    const today = new Date();
+                                    today.setHours(0, 0, 0, 0);
+                                    const fechaCobro = new Date(item.fecha_cobro);
+                                    // Workaround for timezone issue when creating Date from string
+                                    fechaCobro.setMinutes(fechaCobro.getMinutes() + fechaCobro.getTimezoneOffset());
+                                    fechaCobro.setHours(0,0,0,0);
 
-                                if (fechaCobro < today) {
-                                    rowStyle = { backgroundColor: '#fef2f2', borderLeft: '4px solid #ef4444' }; // Overdue - Strong
-                                } else if (fechaCobro.getTime() === today.getTime()) {
-                                    rowStyle = { backgroundColor: '#f0fdfa', borderLeft: '4px solid #14b8a6' }; // Today - Soft Teal
+                                    if (fechaCobro < today) {
+                                        rowStyle = { backgroundColor: '#fef2f2', borderLeft: '4px solid #ef4444' }; // Overdue - Strong
+                                    } else if (fechaCobro.getTime() === today.getTime()) {
+                                        rowStyle = { backgroundColor: '#f0fdfa', borderLeft: '4px solid #14b8a6' }; // Today - Soft Teal
+                                    }
                                 }
-                            }
 
-                            return (
-                                <tr key={`${item.tipo}-${item.id_referencia}-${index}`} id={`sale-row-${item.id_referencia}`} style={rowStyle}>
-                                    <td data-label="ID">#{item.id_referencia}</td>
-                                    <td data-label="Cliente">{item.cliente_nombre}</td>
-                                    <td data-label="Fecha">{formatDate(item.fecha_creacion)}</td>
-                                    <td data-label="Tipo">
-                                        {/*
+                                return (
+                                    <tr key={`${item.tipo}-${item.id_referencia}-${index}`} id={`sale-row-${item.id_referencia}`} style={rowStyle}>
+                                        <td data-label="ID">#{item.id_referencia}</td>
+                                        <td data-label="Cliente">{item.cliente_nombre}</td>
+                                        <td data-label="Fecha">{formatDate(item.fecha_creacion)}</td>
+                                        <td data-label="Tipo">
+                                            {/*
                                       ARCHITECTURE NOTE (Req 3c/3d): UI display labels are intentionally
                                       different from backend domain values. 'CHEQUE' displays as 'Cheque'
                                       (teal), 'FIADO' as 'Cheque' (teal legacy), and 'PEDIDO' as 'Seña'.
                                       The `item.tipo` value is never changed — it drives all API routing.
                                     */}
-                                        {(() => {
-                                            const isChequeSale = item.tipo === 'CHEQUE' || item.has_cheque;
-                                            if (isChequeSale) {
-                                                return <span className="status-pill" style={{ backgroundColor: '#ccfbf1', color: '#0d9488', fontWeight: 700 }}>Cheque</span>;
-                                            } else if (item.tipo === 'FIADO') {
-                                                return <span className="status-pill" style={{ backgroundColor: '#fef3c7', color: '#b45309', fontWeight: 700 }}>Deuda</span>;
-                                            } else {
-                                                return <span className="status-pill" style={{ backgroundColor: '#fee2e2', color: '#b91c1c', fontWeight: 700 }}>Seña</span>;
-                                            }
-                                        })()}
-                                    </td>
-                                    <td data-label="Venta">
-                                        {item.tipo_venta ? (
-                                            <span className={`badge ${item.tipo_venta === 'MAYORISTA' ? 'badge-wholesale' : 'badge-retail'}`}>
+                                            {(() => {
+                                                const isChequeSale = item.tipo === 'CHEQUE' || item.has_cheque;
+                                                if (isChequeSale) {
+                                                    return <span className="status-pill" style={{ backgroundColor: '#ccfbf1', color: '#0d9488', fontWeight: 700 }}>Cheque</span>;
+                                                } else if (item.tipo === 'FIADO') {
+                                                    return <span className="status-pill" style={{ backgroundColor: '#fef3c7', color: '#b45309', fontWeight: 700 }}>Deuda</span>;
+                                                } else {
+                                                    return <span className="status-pill" style={{ backgroundColor: '#fee2e2', color: '#b91c1c', fontWeight: 700 }}>Seña</span>;
+                                                }
+                                            })()}
+                                        </td>
+                                        <td data-label="Venta">
+                                            {item.tipo_venta ? (
+                                                <span className={`badge ${item.tipo_venta === 'MAYORISTA' ? 'badge-wholesale' : 'badge-retail'}`}>
                                             {item.tipo_venta}
                                         </span>
-                                        ) : (
-                                            <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>—</span>
-                                        )}
-                                    </td>
-                                    <td data-label="Productos" className="col-pendiente-productos">
-                                        {item.cantidad_productos ?? 0}
-                                    </td>
-                                    <td data-label="Costo Total" className="amount-cell">{formatCurrency(item.costo_total)}</td>
-                                    <td data-label="Monto Total" className="amount-cell">{formatCurrency(item.monto_total)}</td>
-                                    <td data-label="Monto Pagado" className="amount-cell">{formatCurrency(item.monto_pagado)}</td>
-                                    <td data-label="Saldo Restante" className="amount-cell" style={{ fontWeight: 'bold', color: item.saldo_restante > 0 ? '#dc2626' : '#16a34a' }}>
-                                        {formatCurrency(item.saldo_restante)}
-                                    </td>
-                                    <td data-label="Estado">
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            ) : (
+                                                <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>—</span>
+                                            )}
+                                        </td>
+                                        <td data-label="Productos" className="col-pendiente-productos">
+                                            {item.cantidad_productos ?? 0}
+                                        </td>
+                                        <td data-label="Costo Total" className="amount-cell">{formatCurrency(item.costo_total)}</td>
+                                        <td data-label="Monto Total" className="amount-cell">{formatCurrency(item.monto_total)}</td>
+                                        <td data-label="Monto Pagado" className="amount-cell">{formatCurrency(item.monto_pagado)}</td>
+                                        <td data-label="Saldo Restante" className="amount-cell" style={{ fontWeight: 'bold', color: item.saldo_restante > 0 ? '#dc2626' : '#16a34a' }}>
+                                            {formatCurrency(item.saldo_restante)}
+                                        </td>
+                                        <td data-label="Estado">
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                         <span className={`status-pill status-${item.estado?.toLowerCase()}`}>
                                             {item.estado}
                                         </span>
-                                            {((item.tipo === 'FIADO' || item.tipo === 'CHEQUE') || (item.tipo === 'PEDIDO' && item.has_cheque)) && item.fecha_cobro && (() => {
-                                                const today = new Date();
-                                                today.setHours(0, 0, 0, 0);
-                                                const fechaCobro = new Date(item.fecha_cobro);
-                                                fechaCobro.setMinutes(fechaCobro.getMinutes() + fechaCobro.getTimezoneOffset());
-                                                fechaCobro.setHours(0,0,0,0);
-                                                const isExpired = fechaCobro <= today;
+                                                {((item.tipo === 'FIADO' || item.tipo === 'CHEQUE') || (item.tipo === 'PEDIDO' && item.has_cheque)) && item.fecha_cobro && (() => {
+                                                    const today = new Date();
+                                                    today.setHours(0, 0, 0, 0);
+                                                    const fechaCobro = new Date(item.fecha_cobro);
+                                                    fechaCobro.setMinutes(fechaCobro.getMinutes() + fechaCobro.getTimezoneOffset());
+                                                    fechaCobro.setHours(0,0,0,0);
+                                                    const isExpired = fechaCobro <= today;
 
-                                                return (
-                                                    <small style={{
-                                                        color: isExpired ? '#dc2626' : '#64748b',
-                                                        fontWeight: isExpired ? 'bold' : 'normal',
-                                                        fontSize: '0.75rem'
-                                                    }}>
-                                                        {isExpired ? 'Expirado:' : 'Vence:'} {formatDateOnly(item.fecha_cobro)}
-                                                    </small>
-                                                );
-                                            })()}
-                                        </div>
-                                    </td>
-                                    <td data-label="Acciones">
-                                        <div className="action-buttons">
-                                            <div className="action-buttons-row">
-                                                {/* 1. Pago */}
-                                                <button className="btn-pay" onClick={() => handleOpenPayment(item)}>
-                                                    💰 Pago
-                                                </button>
-
-                                                {/* 2. Ver Detalle */}
-                                                <button
-                                                    className="btn-details"
-                                                    onClick={() => handleViewDetails(item)}
-                                                    disabled={isLoadingSale}
-                                                >
-                                                    👁️ Ver Detalle
-                                                </button>
-
-                                                {/* 3. Imprimir */}
-                                                {item.tipo === 'FIADO' && (
-                                                    <button
-                                                        className="btn-print"
-                                                        onClick={() => handlePrintDebtor(item)}
-                                                    >
-                                                        🖨️ Imprimir
+                                                    return (
+                                                        <small style={{
+                                                            color: isExpired ? '#dc2626' : '#64748b',
+                                                            fontWeight: isExpired ? 'bold' : 'normal',
+                                                            fontSize: '0.75rem'
+                                                        }}>
+                                                            {isExpired ? 'Expirado:' : 'Vence:'} {formatDateOnly(item.fecha_cobro)}
+                                                        </small>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </td>
+                                        <td data-label="Acciones">
+                                            <div className="action-buttons">
+                                                <div className="action-buttons-row">
+                                                    {/* 1. Pago */}
+                                                    <button className="btn-pay" onClick={() => handleOpenPayment(item)}>
+                                                        💰 Pago
                                                     </button>
-                                                )}
+
+                                                    {/* 2. Ver Detalle */}
+                                                    <button
+                                                        className="btn-details"
+                                                        onClick={() => handleViewDetails(item)}
+                                                        disabled={isLoadingSale}
+                                                    >
+                                                        👁️ Ver Detalle
+                                                    </button>
+
+                                                    {/* 3. Imprimir */}
+                                                    {item.tipo === 'FIADO' && (
+                                                        <button
+                                                            className="btn-print"
+                                                            onClick={() => handlePrintDebtor(item)}
+                                                        >
+                                                            🖨️ Imprimir
+                                                        </button>
+                                                    )}
+                                                    {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
+                                                        <button
+                                                            className="btn-print"
+                                                            onClick={() => handlePrintPedido(item)}
+                                                        >
+                                                            🖨️ Imprimir
+                                                        </button>
+                                                    )}
+                                                    {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
+                                                        <button
+                                                            className="btn-pay"
+                                                            style={{ backgroundColor: '#f59e0b', border: '1px solid #d97706' }}
+                                                            onClick={() => handleEditPedido(item)}
+                                                        >
+                                                            ✏️ Editar
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                {/* Row 2: Finalizar y Cancelar (Solo Pedidos Pendientes) */}
                                                 {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
-                                                    <button
-                                                        className="btn-print"
-                                                        onClick={() => handlePrintPedido(item)}
-                                                    >
-                                                        🖨️ Imprimir
-                                                    </button>
-                                                )}
-                                                {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
-                                                    <button
-                                                        className="btn-pay"
-                                                        style={{ backgroundColor: '#f59e0b', border: '1px solid #d97706' }}
-                                                        onClick={() => handleEditPedido(item)}
-                                                    >
-                                                        ✏️ Editar
-                                                    </button>
+                                                    <div className="action-buttons-row">
+                                                        <button
+                                                            className="btn-pay"
+                                                            style={{ backgroundColor: item.monto_pagado > 0 && !isOverpaid ? '#2563eb' : '#94a3b8', border: '1px solid ' + (item.monto_pagado > 0 && !isOverpaid ? '#1d4ed8' : '#64748b') }}
+                                                            onClick={() => handleFinalizarPedido(item)}
+                                                            disabled={item.monto_pagado === 0 || isSubmitting || isOverpaid}
+                                                            title={
+                                                                isOverpaid
+                                                                    ? `⚠️ Monto pagado ($${item.monto_pagado?.toFixed(2)}) supera el total ($${item.monto_total?.toFixed(2)}). Edite el pedido para corregir.`
+                                                                    : item.monto_pagado === 0
+                                                                        ? 'Debe registrar un pago parcial antes de finalizar'
+                                                                        : 'Finalizar pedido y crear venta'
+                                                            }
+                                                        >
+                                                            {isSubmitting ? 'Procesando...' : '✅ Finalizar Venta'}
+                                                        </button>
+                                                        <button className="btn-delete" onClick={() => handleCancelarPedido(item)} disabled={isSubmitting}>
+                                                            ❌ Cancelar Pedido
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </div>
-
-                                            {/* Row 2: Finalizar y Cancelar (Solo Pedidos Pendientes) */}
-                                            {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
-                                                <div className="action-buttons-row">
-                                                    <button
-                                                        className="btn-pay"
-                                                        style={{ backgroundColor: item.monto_pagado > 0 && !isOverpaid ? '#2563eb' : '#94a3b8', border: '1px solid ' + (item.monto_pagado > 0 && !isOverpaid ? '#1d4ed8' : '#64748b') }}
-                                                        onClick={() => handleFinalizarPedido(item)}
-                                                        disabled={item.monto_pagado === 0 || isSubmitting || isOverpaid}
-                                                        title={
-                                                            isOverpaid
-                                                                ? `⚠️ Monto pagado ($${item.monto_pagado?.toFixed(2)}) supera el total ($${item.monto_total?.toFixed(2)}). Edite el pedido para corregir.`
-                                                                : item.monto_pagado === 0
-                                                                    ? 'Debe registrar un pago parcial antes de finalizar'
-                                                                    : 'Finalizar pedido y crear venta'
-                                                        }
-                                                    >
-                                                        {isSubmitting ? 'Procesando...' : '✅ Finalizar Venta'}
-                                                    </button>
-                                                    <button className="btn-delete" onClick={() => handleCancelarPedido(item)} disabled={isSubmitting}>
-                                                        ❌ Cancelar Pedido
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                        {displayedItems.length === 0 && (
-                            <tr><td colSpan="11" style={{ textAlign: 'center' }}>No hay cobros ni pedidos registrados.</td></tr>
-                        )}
-                        </tbody>
-                    </table>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            {displayedItems.length === 0 && (
+                                <tr><td colSpan="11" style={{ textAlign: 'center' }}>No hay cobros ni pedidos registrados.</td></tr>
+                            )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 

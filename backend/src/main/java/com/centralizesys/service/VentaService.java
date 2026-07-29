@@ -43,6 +43,8 @@ public class VentaService {
     private static final String MINORISTA = "MINORISTA";
     private static final String VENTA_PENDIENTE = "Venta Pendiente";
     private static final double PAYMENT_COMPLETE_EPSILON = 0.01;
+    private static final String COBRADO = "COBRADO";
+    private static final String ALERTA_CHEQUE = "AlertaCheque";
 
     public VentaService(VentaRepository ventaRepository,
                         ProductRepository productRepository,
@@ -60,17 +62,19 @@ public class VentaService {
         this.metodoPagoRepository = metodoPagoRepository;
     }
 
-    public PageResponse<Venta> getVentasPage(String startDate, String endDate, int page, int size) {
+    public PageResponse<Venta> getVentasPage(String startDate, String endDate, Long searchId, int page, int size) {
         LocalDateTime end = (endDate == null || endDate.isBlank()) ? LocalDateTime.now(ZoneId.systemDefault()) : LocalDate.parse(endDate).atTime(23, 59, 59, 999999999);
         LocalDateTime start = (startDate == null || startDate.isBlank()) ? end.minusDays(30).withHour(0).withMinute(0).withSecond(0).withNano(0) : LocalDate.parse(startDate).atStartOfDay();
 
-        long daysDiff = java.time.temporal.ChronoUnit.DAYS.between(start.atZone(ZoneId.systemDefault()), end.atZone(ZoneId.systemDefault()));
-        if (daysDiff < 0) throw new BusinessRuleException("La fecha de inicio no puede ser posterior a la fecha de fin.");
-        if (daysDiff > 60) throw new BusinessRuleException("El rango de fechas no puede exceder los 60 días.");
+        if (searchId == null) {
+            long daysDiff = java.time.temporal.ChronoUnit.DAYS.between(start.atZone(ZoneId.systemDefault()), end.atZone(ZoneId.systemDefault()));
+            if (daysDiff < 0) throw new BusinessRuleException("La fecha de inicio no puede ser posterior a la fecha de fin.");
+            if (daysDiff > 60) throw new BusinessRuleException("El rango de fechas no puede exceder los 60 días.");
+        }
 
         int offset = page * size;
-        List<Venta> ventas = ventaRepository.findVentasByFechaBetween(start, end, size, offset);
-        long totalElements = ventaRepository.countVentasByFechaBetween(start, end);
+        List<Venta> ventas = ventaRepository.findVentasByFechaBetween(start, end, searchId, size, offset);
+        long totalElements = ventaRepository.countVentasByFechaBetween(start, end, searchId);
         long totalPages = (long) Math.ceil((double) totalElements / size);
 
         return new PageResponse<>(ventas, (long) page, (long) size, totalElements, totalPages);
@@ -226,7 +230,7 @@ public class VentaService {
     @Transactional
     public void cobrarCheque(Long chequeId, Long metodoPagoId, Long authenticatedUserId) {
         AlertaCheque cheque = alertaChequeRepository.findById(chequeId)
-                .orElseThrow(() -> new ResourceNotFoundException("AlertaCheque", chequeId));
+                .orElseThrow(() -> new ResourceNotFoundException(ALERTA_CHEQUE, chequeId));
 
         if (!PENDIENTE.equals(cheque.getEstado())) {
             throw new BusinessRuleException("El cheque ya fue cobrado o anulado.");
@@ -239,7 +243,7 @@ public class VentaService {
         }
 
         Long pagoVentaId = ventaRepository.savePagoUnicoReturningId(cheque.getVentaId(), metodoPagoId, cheque.getMonto(), authenticatedUserId);
-        alertaChequeRepository.updateEstadoAndPagoVentaId(chequeId, "COBRADO", pagoVentaId);
+        alertaChequeRepository.updateEstadoAndPagoVentaId(chequeId, COBRADO, pagoVentaId);
 
         auditoriaService.registrarAccion(authenticatedUserId, "COBRO_CHEQUE",
                 "Cheque ID " + chequeId + " cobrado por $" + cheque.getMonto() + " (Pago ID: " + pagoVentaId + ")");
@@ -247,44 +251,39 @@ public class VentaService {
 
     @Transactional
     public void cancelarCobroCheque(Long chequeId, Long authenticatedUserId) {
+        internalCancelarCobroCheque(chequeId, authenticatedUserId);
+    }
+
+    private void internalCancelarCobroCheque(Long chequeId, Long authenticatedUserId) {
         AlertaCheque cheque = alertaChequeRepository.findById(chequeId)
-                .orElseThrow(() -> new ResourceNotFoundException("AlertaCheque", chequeId));
+                .orElseThrow(() -> new ResourceNotFoundException(ALERTA_CHEQUE, chequeId));
 
-        if (!"COBRADO".equals(cheque.getEstado())) {
-            throw new BusinessRuleException("Solo se pueden cancelar cheques que hayan sido cobrados.");
+        if (!COBRADO.equals(cheque.getEstado()) || cheque.getPagoVentaId() == null) {
+            throw new BusinessRuleException("El cheque no está cobrado o no tiene un pago asociado.");
         }
 
-        if (cheque.getPagoVentaId() == null) {
-            throw new BusinessRuleException("No se encontró el pago asociado a este cheque para anularlo (Cheques cobrados antes de la versión 6.0 no pueden anularse automáticamente).");
-        }
-
-        // Anular el pago físicamente en la DB
         ventaRepository.anularPagoVentaById(cheque.getPagoVentaId());
-
-        // Revertir el estado del cheque
         alertaChequeRepository.updateEstadoAndPagoVentaId(chequeId, PENDIENTE, null);
-
-        auditoriaService.registrarAccion(authenticatedUserId, "CANCELACION_COBRO_CHEQUE",
-                "Anulado cobro de Cheque ID " + chequeId + " por $" + cheque.getMonto());
+        auditoriaService.registrarAccion(authenticatedUserId, "CANCELACION_COBRO_CHEQUE", "Cheque ID: " + chequeId);
     }
 
     // TODO: Add backend tests for this logical deletion logic (anularCheque)
     @Transactional
     public void anularCheque(Long chequeId, Long authenticatedUserId) {
         AlertaCheque cheque = alertaChequeRepository.findById(chequeId)
-                .orElseThrow(() -> new ResourceNotFoundException("AlertaCheque", chequeId));
+                .orElseThrow(() -> new ResourceNotFoundException(ALERTA_CHEQUE, chequeId));
 
-        if ("ANULADA".equals(cheque.getEstado())) {
+        if (ANULADA.equals(cheque.getEstado())) {
             throw new BusinessRuleException("El cheque ya se encuentra anulado.");
         }
 
         // Si el cheque ya fue cobrado, deshacemos el pago antes de anularlo completamente
-        if ("COBRADO".equals(cheque.getEstado())) {
-            cancelarCobroCheque(chequeId, authenticatedUserId);
+        if (COBRADO.equals(cheque.getEstado())) {
+            internalCancelarCobroCheque(chequeId, authenticatedUserId);
         }
 
         // Logical deletion: marcar como ANULADA
-        alertaChequeRepository.updateEstadoAndPagoVentaId(chequeId, "ANULADA", null);
+        alertaChequeRepository.updateEstadoAndPagoVentaId(chequeId, ANULADA, null);
 
         auditoriaService.registrarAccion(authenticatedUserId, "ANULAR_CHEQUE",
                 "Cheque ID " + chequeId + " anulado de la venta (eliminación lógica).");
@@ -360,7 +359,7 @@ public class VentaService {
             if (pago.getMontoPago() != null && pago.getMontoPago() > 0) {
                 if (pago.getFechaCobro() != null) {
                     // Es un cheque pendiente, no un pago real de contado
-                    AlertaCheque cheque = new AlertaCheque(null, id, pago.getMontoPago(), pago.getFechaCobro(), "PENDIENTE", null, null);
+                    AlertaCheque cheque = new AlertaCheque(null, id, pago.getMontoPago(), pago.getFechaCobro(), PENDIENTE, null, null);
                     alertaChequeRepository.save(cheque);
                 } else {
                     ventaRepository.savePagoUnico(id, pago.getMetodoPagoId(), pago.getMontoPago(), usuarioId);
@@ -569,6 +568,7 @@ public class VentaService {
         Double precioFinal = calculateFinalPrice(precioBase, valorDescuento, producto.getDescripcion());
 
         detalle.setDescuentoValor(valorDescuento);
+        detalle.setRazonDescuento(itemReq.getRazonDescuento());
         detalle.setPrecioUnitario(precioFinal);
         detalle.setSubtotal(itemReq.getCantidad() * precioFinal);
 

@@ -15,6 +15,7 @@ export default function SalesHistoryPage() {
         return d.toISOString().split('T')[0];
     });
     const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+    const [searchId, setSearchId] = useState('');
 
     const [page, setPage] = useState(0);
     const [pageSize] = useState(15);
@@ -70,9 +71,15 @@ export default function SalesHistoryPage() {
             const params = {
                 page: currentPage,
                 size: pageSize,
-                startDate,
-                endDate
             };
+
+            // Override date filters if searchId is present
+            if (searchId) {
+                params.searchId = searchId;
+            } else {
+                params.startDate = startDate;
+                params.endDate = endDate;
+            }
 
             const res = await api.get('/ventas', { params });
             // New PageResponse structure
@@ -85,11 +92,15 @@ export default function SalesHistoryPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, pageSize, startDate, endDate]);
+    }, [page, pageSize, startDate, endDate, searchId]);
 
+    // Debounce the searchId changes to avoid spamming the backend
     useEffect(() => {
-        loadSales();
-    }, [loadSales]);
+        const timeoutId = setTimeout(() => {
+            loadSales();
+        }, 300);
+        return () => clearTimeout(timeoutId);
+    }, [searchId, startDate, endDate, loadSales]);
 
     const handleOpenDetails = async (saleId) => {
         try {
@@ -129,6 +140,7 @@ export default function SalesHistoryPage() {
                     quantity: d.cantidad,
                     unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
+                    reason: d.razonDescuento || null,
                     subtotal: d.subtotal
                 })),
                 payments: enrichedPayments,
@@ -162,10 +174,22 @@ export default function SalesHistoryPage() {
     return (
         <div className="history-page container">
             <div className="history-header-column">
-                <h1>Historial de Ventas</h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                    <h1>Historial de Ventas</h1>
+                    <input
+                        type="text"
+                        value={searchId}
+                        onChange={(e) => {
+                            setSearchId(e.target.value.replace(/\D/g, ''));
+                            setPage(0);
+                        }}
+                        placeholder="Filtrar por ID de venta"
+                        style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', minWidth: '200px' }}
+                    />
+                </div>
 
                 {/* 1. Date Filters Row (Above Pagination) */}
-                <div className="date-filters-row">
+                <div className="date-filters-row" style={{ opacity: searchId ? 0.5 : 1, pointerEvents: searchId ? 'none' : 'auto' }}>
                     <div className="filter-group">
                         <label>Desde:</label>
                         <input

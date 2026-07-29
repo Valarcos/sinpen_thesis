@@ -13,6 +13,7 @@ export default function AppLayout() {
     const navigate = useNavigate();
     const location = useLocation();
     const isVentasPage = location.pathname.startsWith('/ventas');
+    const isFullWidthPage = location.pathname === '/cobros-y-pedidos' || location.pathname === '/historial-ventas';
 
     useEffect(() => {
         setUserName(localStorage.getItem('userName') || 'Usuario');
@@ -99,7 +100,7 @@ export default function AppLayout() {
             </nav>
 
             {/* Main Content */}
-            <main className="main-content">
+            <main className={`main-content ${isFullWidthPage ? 'full-width-page' : ''}`}>
                 <Outlet key={location.pathname} context={{ salesActiveTab, setSalesActiveTab }} />
             </main>
 

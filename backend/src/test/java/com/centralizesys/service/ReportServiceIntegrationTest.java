@@ -289,8 +289,9 @@ class ReportServiceIntegrationTest extends BaseIntegrationTest {
         double cashFlowAfter = statsAfter.getFlujoDeCaja().getIngresosEfectivo();
         double revenueAfter = statsAfter.getRendimientoComercial().getIngresosVentas();
 
-        // Accrual Revenue should increase by 500 today because the sale was finalized today
-        assertEquals(revenueBefore + 500.0, revenueAfter, 0.001, "Revenue should reflect the finalized sale today.");
+        // Accrual Revenue should increase by 300 today because the sale was finalized today,
+        // and 200 of its value was already recognized as advance payments while pending.
+        assertEquals(revenueBefore + 300.0, revenueAfter, 0.001, "Revenue should reflect the net new recognized value.");
 
         // Cash Flow for today should NOT change, because the $200 deposit was paid yesterday!
         // This assertion proves the double-counting bug is gone.

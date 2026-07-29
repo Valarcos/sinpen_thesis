@@ -138,22 +138,11 @@ export default function ReportesPage() {
                     <div className="report-section comercial">
                         <h2 className="report-section-title">📦 RENDIMIENTO COMERCIAL</h2>
                         <div className="stats-grid">
-                            <div className="stat-card card-pendientes">
-                                <h3>Ventas Pendientes</h3>
-                                <div className="value">{formatCurrency(rc.ventasPendientes)}</div>
-                                <div className="sub-value">Pedidos no finalizados</div>
-                            </div>
-
+                            {/* Group 1: Core Performance */}
                             <div className="stat-card card-revenue">
                                 <h3>Total Ventas (Ingresos)</h3>
                                 <div className="value">{formatCurrency(rc.ingresosVentas)}</div>
                                 <div className="sub-value">Incluye ventas cobradas y fiadas</div>
-                            </div>
-
-                            <div className="stat-card card-debt">
-                                <h3>Deudas Pendientes</h3>
-                                <div className="value">{formatCurrency(rc.deudasPendientes)}</div>
-                                <div className="sub-value">Total histórico de fiados activos</div>
                             </div>
 
                             <div className="stat-card card-cogs">
@@ -168,16 +157,38 @@ export default function ReportesPage() {
                                 <div className="sub-value">Margen comercial del {margenPct.toFixed(1)}%</div>
                             </div>
 
-                            <div className="stat-card">
-                                <h3>Volumen de Productos</h3>
-                                <div className="value">{rc.productosVendidos} <span style={{color: '#64748b'}}>vendidos</span></div>
-                                <div className="sub-value">{rc.productosComprados} comprados al proveedor</div>
+                            {/* Group 2: Pipeline & Receivables */}
+                            <div className="stat-card card-pendientes">
+                                <h3>Ventas Pendientes</h3>
+                                <div className="value">{formatCurrency(rc.ventasPendientes)}</div>
+                                <div className="sub-value">Pedidos sin cobrar</div>
                             </div>
 
                             <div className="stat-card card-proyectado">
                                 <h3>Total Ventas Proyectadas</h3>
                                 <div className="value">{formatCurrency(rc.ventasTotalesProyectadas)}</div>
                                 <div className="sub-value">Ingresos + Ventas Pendientes</div>
+                            </div>
+
+                            <div className="stat-card card-debt">
+                                <h3>Deudas Pendientes</h3>
+                                <div className="value">{formatCurrency(rc.deudasPendientes)}</div>
+                                <div className="sub-value">Total de fiados y cheques activos</div>
+                            </div>
+
+                            {/* TODO: If clients prefer a unified "Cuentas por Cobrar" metric instead of separate "Ventas Pendientes" and "Deudas Pendientes", uncomment this block and remove the Ventas Pendientes & Deudas Pendientes blocks above.
+                            <div className="stat-card card-debt">
+                                <h3>Cuentas por Cobrar</h3>
+                                <div className="value">{formatCurrency(rc.ventasPendientes + rc.deudasPendientes)}</div>
+                                <div className="sub-value">Saldos de pedidos, fiados y cheques activos</div>
+                            </div>
+                            */}
+
+                            {/* Group 3: Operations */}
+                            <div className="stat-card">
+                                <h3>Volumen de Productos</h3>
+                                <div className="value">{rc.productosVendidos} <span style={{color: '#64748b'}}>vendidos</span></div>
+                                <div className="sub-value">{rc.productosComprados} comprados al proveedor</div>
                             </div>
                         </div>
                     </div>
