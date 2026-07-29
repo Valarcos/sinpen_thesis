@@ -390,7 +390,8 @@ export default function VentaPage() {
                         ...i.product,
                         quantity: i.quantity,
                         unitPrice: i.unitPrice,
-                        discount: i.discount
+                        discount: i.discount,
+                        reason: i.reason || null
                     }];
                 }),
                 payments: payments,

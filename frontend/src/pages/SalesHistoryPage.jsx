@@ -140,6 +140,7 @@ export default function SalesHistoryPage() {
                     quantity: d.cantidad,
                     unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
+                    reason: d.razonDescuento || null,
                     subtotal: d.subtotal
                 })),
                 payments: enrichedPayments,
