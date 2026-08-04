@@ -883,11 +883,12 @@ export default function VentaPage() {
                             ? product.codigo
                             : `1|${product.descripcion.trim().toLowerCase()}`;
                         const isExpanded = expandedFamilyKey === familyKey;
+                        const isPerfectMatch = searchQuery && product.codigo === searchQuery;
 
                         return (
                             <div key={familyKey} className="product-card-wrapper">
                                 <div
-                                    className={`product-card ${product._isGrouped ? 'product-card-family' : ''}`}
+                                    className={`product-card ${product._isGrouped ? 'product-card-family' : ''} ${isPerfectMatch ? 'perfect-match-highlight' : ''}`}
                                     onClick={() => handleFamilyCardClick(product)}
                                 >
                                     <h3>{product.descripcion}</h3>

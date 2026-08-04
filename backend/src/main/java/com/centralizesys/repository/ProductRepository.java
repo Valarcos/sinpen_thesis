@@ -121,9 +121,26 @@ public class ProductRepository {
     // SAFETY: Filters activo = true, guaranteeing the barcode scanner and typed
     // search can never surface logically-deleted products to the frontend.
     public List<Product> search(String query) {
-        if (query == null)
+        if (query == null || query.isBlank())
             return List.of();
-        String term = "%" + query.trim() + "%";
+
+        String trimmed = query.trim();
+
+        // User requested: If the query is strictly numeric, filter to only show results
+        // where the code starts with those digits to avoid hundreds of substring matches.
+        if (trimmed.matches("\\d+")) {
+            String termCodigo = trimmed + "%";
+            String sql = """
+                        SELECT * FROM productos
+                        WHERE activo = true
+                        AND UPPER(codigo) LIKE UPPER(:termCodigo)
+                        ORDER BY cantidad_stock DESC, id DESC
+                        LIMIT 100
+                    """;
+            return namedJdbcTemplate.query(sql, new MapSqlParameterSource("termCodigo", termCodigo), rowMapper);
+        }
+
+        String term = "%" + trimmed + "%";
         // STRICT: Limit to 100 to prevent UI performance issues.
         // ORDER BY: variants with stock are returned first; among ties, newest (highest ID) wins,
         // reflecting the most recent purchase cost for accurate price display.

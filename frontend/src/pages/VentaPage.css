@@ -81,10 +81,11 @@
     background: var(--surface-color);
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 1rem;
+    padding: 0.5rem !important;
     cursor: pointer;
     transition: transform 0.1s, box-shadow 0.1s;
     user-select: none;
+    line-height: 1.1 !important;
 }
 
 .product-card:hover {
@@ -93,10 +94,26 @@
     border-color: var(--primary-color);
 }
 
+/* Perfect Match Highlight styles */
+.product-card.perfect-match-highlight {
+    border: 3px solid #cc0000 !important;
+    box-shadow: 0 0 12px rgba(204, 0, 0, 0.4) !important;
+    background-color: #fff0f0 !important;
+}
+
 .product-card h3 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.1rem;
+    margin: 0 0 0.2rem 0 !important;
+    font-size: 1.1rem !important;
     color: var(--text-color);
+    line-height: 1.1 !important;
+}
+
+.product-code-label {
+    display: block !important;
+    font-size: 1.25rem !important;
+    font-weight: 900 !important;
+    color: #cc0000 !important;
+    margin-bottom: 0.2rem !important;
 }
 
 .product-card .price {
