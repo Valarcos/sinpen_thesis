@@ -851,7 +851,19 @@ export default function VentaPage() {
                                     const fetchedProducts = groupProducts(response.data.content || []);
                                     setProducts(fetchedProducts);
 
-                                    if (fetchedProducts.length === 1) {
+                                    const exactMatch = fetchedProducts.find(p => p.codigo === searchQuery);
+
+                                    if (exactMatch) {
+                                        if (!exactMatch._isGrouped) {
+                                            handleAddToCart(exactMatch);
+                                            setSearchQuery('');
+                                        } else {
+                                            const key = exactMatch.codigo !== '1'
+                                                ? exactMatch.codigo
+                                                : `1|${exactMatch.descripcion.trim().toLowerCase()}`;
+                                            setExpandedFamilyKey(prev => prev === key ? null : key);
+                                        }
+                                    } else if (fetchedProducts.length === 1) {
                                         const single = fetchedProducts[0];
                                         if (!single._isGrouped) {
                                             // Single variant: add directly to cart

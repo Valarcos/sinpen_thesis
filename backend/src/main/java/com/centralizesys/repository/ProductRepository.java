@@ -134,25 +134,35 @@ public class ProductRepository {
                         SELECT * FROM productos
                         WHERE activo = true
                         AND UPPER(codigo) LIKE UPPER(:termCodigo)
-                        ORDER BY cantidad_stock DESC, id DESC
+                        ORDER BY 
+                            CASE WHEN UPPER(codigo) = UPPER(:exactMatch) THEN 0 ELSE 1 END ASC,
+                            LENGTH(codigo) ASC,
+                            cantidad_stock DESC, 
+                            id DESC
                         LIMIT 100
                     """;
-            return namedJdbcTemplate.query(sql, new MapSqlParameterSource("termCodigo", termCodigo), rowMapper);
+            MapSqlParameterSource params = new MapSqlParameterSource("termCodigo", termCodigo)
+                    .addValue("exactMatch", trimmed);
+            return namedJdbcTemplate.query(sql, params, rowMapper);
         }
 
         String term = "%" + trimmed + "%";
         // STRICT: Limit to 100 to prevent UI performance issues.
-        // ORDER BY: variants with stock are returned first; among ties, newest (highest ID) wins,
-        // reflecting the most recent purchase cost for accurate price display.
+        // ORDER BY: Exact code matches first, then stock, then ID
         String sql = """
                     SELECT * FROM productos
                     WHERE activo = true
                     AND (UPPER(codigo) LIKE UPPER(:termino) OR LOWER(descripcion) LIKE LOWER(:termino))
-                    ORDER BY cantidad_stock DESC, id DESC
+                    ORDER BY 
+                        CASE WHEN UPPER(codigo) = UPPER(:exactMatch) THEN 0 ELSE 1 END ASC,
+                        cantidad_stock DESC, 
+                        id DESC
                     LIMIT 100
                 """;
 
-        return namedJdbcTemplate.query(sql, new MapSqlParameterSource(PARAM_TERMINO, term), rowMapper);
+        MapSqlParameterSource params = new MapSqlParameterSource(PARAM_TERMINO, term)
+                .addValue("exactMatch", trimmed);
+        return namedJdbcTemplate.query(sql, params, rowMapper);
     }
 
     public Product save(Product producto) {
