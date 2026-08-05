@@ -851,7 +851,19 @@ export default function VentaPage() {
                                     const fetchedProducts = groupProducts(response.data.content || []);
                                     setProducts(fetchedProducts);
 
-                                    if (fetchedProducts.length === 1) {
+                                    const exactMatch = fetchedProducts.find(p => p.codigo === searchQuery);
+
+                                    if (exactMatch) {
+                                        if (!exactMatch._isGrouped) {
+                                            handleAddToCart(exactMatch);
+                                            setSearchQuery('');
+                                        } else {
+                                            const key = exactMatch.codigo !== '1'
+                                                ? exactMatch.codigo
+                                                : `1|${exactMatch.descripcion.trim().toLowerCase()}`;
+                                            setExpandedFamilyKey(prev => prev === key ? null : key);
+                                        }
+                                    } else if (fetchedProducts.length === 1) {
                                         const single = fetchedProducts[0];
                                         if (!single._isGrouped) {
                                             // Single variant: add directly to cart
@@ -883,11 +895,12 @@ export default function VentaPage() {
                             ? product.codigo
                             : `1|${product.descripcion.trim().toLowerCase()}`;
                         const isExpanded = expandedFamilyKey === familyKey;
+                        const isPerfectMatch = searchQuery && product.codigo === searchQuery;
 
                         return (
                             <div key={familyKey} className="product-card-wrapper">
                                 <div
-                                    className={`product-card ${product._isGrouped ? 'product-card-family' : ''}`}
+                                    className={`product-card ${product._isGrouped ? 'product-card-family' : ''} ${isPerfectMatch ? 'perfect-match-highlight' : ''}`}
                                     onClick={() => handleFamilyCardClick(product)}
                                 >
                                     <h3>{product.descripcion}</h3>

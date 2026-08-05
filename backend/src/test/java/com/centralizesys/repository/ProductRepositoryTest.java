@@ -133,6 +133,26 @@ class ProductRepositoryTest extends BaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("Search with numeric query uses StartsWith for code and ignores description/contains")
+    void search_WithNumericQuery_UsesStartsWith() {
+        // Product 1: Code starts with "123"
+        createTestProduct("1234", 10.0, 10L);
+
+        // Product 2: Code contains "123" but does NOT start with it
+        createTestProduct("9123", 10.0, 10L);
+
+        // Product 3: Description contains "123" but code does not
+        Product p3 = new Product("TEXT-CODE", "Product 123", 20.0, null, 40.0);
+        productRepository.save(p3);
+
+        List<Product> results = productRepository.search("123");
+
+        // Should ONLY return "1234" because for numeric queries it strictly uses StartsWith on the code
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().getCodigo()).isEqualTo("1234");
+    }
+
+    @Test
     @DisplayName("findLowStock - returns products with negative stock")
     void findLowStock_returnsNegativeStockProducts() {
         // Arrange - Create a product with negative stock
