@@ -133,6 +133,16 @@ public class VentaController {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/{id}/devolucion-parcial")
+    public ResponseEntity<Void> registrarDevolucionParcial(
+            @PathVariable Long id,
+            @RequestBody com.centralizesys.model.returns.DevolucionRequest request) {
+        Long authenticatedUserId = SecurityUtils.getAuthenticatedUserId();
+        request.setUsuarioId(authenticatedUserId);
+        ventaService.registrarDevolucionParcial(id, request, authenticatedUserId);
+        return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
     // --- CONFIG / UTILS ---
 
     @GetMapping("/metodos-pago")

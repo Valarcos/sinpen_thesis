@@ -1,0 +1,312 @@
+/**
+ * PremiumModal.css
+ * Shared styles for all premium-style modals in the application.
+ * Import this file + apply the corresponding BEM class names listed below.
+ *
+ * Usage:
+ *   import '../components/PremiumModal.css';
+ *   <div className="modal-overlay">
+ *     <div className="modal-content premium-modal-content [size-modifier]">
+ *       <div className="pm-header">...</div>
+ *       <div className="pm-body">...</div>
+ *       <div className="pm-footer">...</div>
+ *     </div>
+ *   </div>
+ *
+ * Size modifiers: pm-md (default, 800px), pm-sm (500px), pm-lg (1000px)
+ */
+
+/* ------------------------------------------------------------------ */
+/* Base container                                                        */
+/* ------------------------------------------------------------------ */
+.modal-content.premium-modal-content {
+    padding: 0;
+    overflow: hidden;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+}
+
+/* --- Size modifiers --- */
+.modal-content.premium-modal-content.pm-md { max-width: 800px; width: 90%; }
+.modal-content.premium-modal-content.pm-sm { max-width: 500px; width: 90%; }
+.modal-content.premium-modal-content.pm-lg { max-width: 1000px; width: 95%; }
+
+/* ------------------------------------------------------------------ */
+/* Header                                                               */
+/* ------------------------------------------------------------------ */
+.pm-header {
+    background-color: #0d9488;
+    color: white;
+    padding: 1rem 1.25rem;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.pm-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: white;
+}
+
+.pm-header.pm-header-warning {
+    background-color: #b45309;
+}
+
+.pm-header.pm-header-danger {
+    background-color: #991b1b;
+}
+
+/* ------------------------------------------------------------------ */
+/* Body                                                                  */
+/* ------------------------------------------------------------------ */
+.pm-body {
+    padding: 1rem 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Info Box (summary card at top of body)                               */
+/* ------------------------------------------------------------------ */
+.pm-info-box {
+    background-color: #f8f9fa;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+    border: 1px solid #e2e8f0;
+}
+
+.pm-info-row {
+    display: grid;
+    grid-template-columns: 50% 50%;
+    margin-bottom: 0.38rem;
+    font-size: 0.95rem;
+}
+
+.pm-info-row:last-child {
+    margin-bottom: 0;
+}
+
+.pm-info-label {
+    text-align: right;
+    padding-right: 0.5rem;
+    color: #475569;
+    font-weight: 500;
+}
+
+.pm-info-value {
+    text-align: left;
+    padding-left: 0.5rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+/* ------------------------------------------------------------------ */
+/* Scrollable list                                                       */
+/* ------------------------------------------------------------------ */
+.pm-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    max-height: 280px;
+    overflow-y: auto;
+    padding-right: 0.2rem;
+}
+
+.pm-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    background-color: #f8fafc;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.pm-row label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #475569;
+    white-space: nowrap;
+}
+
+.pm-row input,
+.pm-row select {
+    flex: 1;
+    padding: 0.4rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    margin: 0;
+    background: white;
+}
+
+/* ------------------------------------------------------------------ */
+/* Warning / Alert banners inside body                                  */
+/* ------------------------------------------------------------------ */
+.pm-warning-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background-color: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+    color: #92400e;
+}
+
+.pm-danger-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background-color: #fee2e2;
+    border: 1px solid #f87171;
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+    color: #991b1b;
+    font-weight: 500;
+}
+
+.pm-banner-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+    line-height: 1.4;
+}
+
+/* ------------------------------------------------------------------ */
+/* Refund type toggle                                                    */
+/* ------------------------------------------------------------------ */
+.pm-refund-toggle {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.pm-refund-toggle button {
+    flex: 1;
+    padding: 0.5rem 1rem;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    background: white;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: #475569;
+}
+
+.pm-refund-toggle button.active {
+    border-color: #0d9488;
+    background-color: #ccfbf1;
+    color: #065f46;
+}
+
+.pm-refund-toggle button.active-cash {
+    border-color: #b45309;
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.pm-refund-toggle button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ */
+/* Footer                                                                */
+/* ------------------------------------------------------------------ */
+.pm-footer {
+    padding: 1rem 1.5rem;
+    background-color: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    flex-shrink: 0;
+}
+
+.pm-footer button {
+    padding: 0.5rem 1.25rem;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: background-color 0.15s ease;
+}
+
+/* Cancel */
+.pm-btn-cancel {
+    background-color: transparent;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+}
+
+.pm-btn-cancel:hover {
+    background-color: #f1f5f9;
+}
+
+/* Primary (teal) */
+.pm-btn-confirm {
+    background-color: #0d9488;
+    color: white;
+    border: none;
+}
+
+.pm-btn-confirm:hover:not(:disabled) {
+    background-color: #0f766e;
+}
+
+.pm-btn-confirm:disabled {
+    background-color: #94a3b8;
+    cursor: not-allowed;
+}
+
+/* Danger */
+.pm-btn-danger {
+    background-color: #dc2626;
+    color: white;
+    border: none;
+}
+
+.pm-btn-danger:hover:not(:disabled) {
+    background-color: #b91c1c;
+}
+
+.pm-btn-danger:disabled {
+    background-color: #94a3b8;
+    cursor: not-allowed;
+}
+
+/* Quantity Button Responsive */
+.pm-qty-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    border: 1px solid #cbd5e1;
+    background: white;
+    cursor: pointer;
+    font-weight: 700;
+    color: #1e293b;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+@media (min-width: 1024px) {
+    .pm-qty-btn {
+        width: 26px;
+        height: 26px;
+        font-size: 1.1rem;
+    }
+}

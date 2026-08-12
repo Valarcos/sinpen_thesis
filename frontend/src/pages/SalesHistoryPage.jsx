@@ -3,6 +3,7 @@ import api from '../services/api';
 import { formatCurrency, formatDate } from '../utils/format';
 import SalesDetailModal from '../components/SalesDetailModal';
 import CancellationModal from '../components/CancellationModal';
+import PartialReturnModal from '../components/PartialReturnModal';
 import { generateReceipt } from '../utils/pdfGenerator';
 import toast from 'react-hot-toast';
 import './SalesHistoryPage.css';
@@ -25,6 +26,7 @@ export default function SalesHistoryPage() {
     const [loading, setLoading] = useState(true);
     const [selectedSale, setSelectedSale] = useState(null);
     const [saleToCancel, setSaleToCancel] = useState(null);
+    const [saleToReturn, setSaleToReturn] = useState(null); // For PartialReturnModal
     const [paymentMethods, setPaymentMethods] = useState([]);
     const [isPrinting, setIsPrinting] = useState(false);
 
@@ -138,6 +140,7 @@ export default function SalesHistoryPage() {
                     codigo: d.productoCodigo || d.codigoSnapshot,
                     descripcion: d.productoNombre || d.descripcionSnapshot,
                     quantity: d.cantidad,
+                    returnedQuantity: d.cantidadDevuelta || 0,
                     unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
                     reason: d.razonDescuento || null,
@@ -293,9 +296,23 @@ export default function SalesHistoryPage() {
                                                 {sale.estado === 'ANULADA' ? (
                                                     <span className="label-cancelada">CANCELADA</span>
                                                 ) : (
-                                                    <button className="btn-delete" onClick={() => setSaleToCancel(sale.id)}>
-                                                        Anular
-                                                    </button>
+                                                    <>
+                                                        {sale.estado === 'DEVUELTA_PARCIAL' && (
+                                                            <span className="label-devuelta-parcial" style={{background: '#fef3c7', color: '#92400e', padding: '0.4rem 0.5rem', borderRadius: '4px', fontWeight: 'bold', fontSize: '0.75rem'}}>DEV. PARCIAL</span>
+                                                        )}
+                                                        <button
+                                                            className="btn-return"
+                                                            onClick={() => setSaleToReturn(sale)}
+                                                            title="Registrar devolución parcial"
+                                                        >
+                                                            ↩ Devolver
+                                                        </button>
+                                                        {sale.estado !== 'DEVUELTA_PARCIAL' && (
+                                                            <button className="btn-delete" onClick={() => setSaleToCancel(sale.id)}>
+                                                                Anular
+                                                            </button>
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -345,6 +362,13 @@ export default function SalesHistoryPage() {
                     onClose={() => setSelectedSale(null)}
                 />
             )}
+
+            <PartialReturnModal
+                isOpen={!!saleToReturn}
+                sale={saleToReturn}
+                onClose={() => setSaleToReturn(null)}
+                onSuccess={loadSales}
+            />
 
             <CancellationModal
                 isOpen={!!saleToCancel}

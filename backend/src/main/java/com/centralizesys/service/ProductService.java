@@ -110,16 +110,17 @@ public class ProductService {
 
     @Transactional
     public Product create(Product product) {
-        return internalCreate(product);
+        // Uses system user (0L) since this path is not triggered by a direct HTTP request.
+        return internalCreate(product, 0L);
     }
 
     // Extended create method dealing with initial stock
     @Transactional
-    public Product createWithStock(Product product, Long locationId, Long quantity) {
+    public Product createWithStock(Product product, Long locationId, Long quantity, Long usuarioId) {
         // Use internal helper to avoid "self-invocation" of Transactional method
         // (Sonar rule: Call transactional methods via an injected dependency instead of
         // directly via 'this')
-        Product saved = internalCreate(product);
+        Product saved = internalCreate(product, usuarioId);
 
         if (locationId != null && quantity != null && quantity > 0) {
             stockService.addStock(saved.getId(), locationId, quantity);
@@ -129,14 +130,18 @@ public class ProductService {
     }
 
     // Helper to centralize creation logic and bypass self-invocation issues
-    private Product internalCreate(Product product) {
+    private Product internalCreate(Product product, Long usuarioId) {
         // 1. Validate fields (throws BusinessRuleException on invalid input)
         validate(product);
 
         // 2. Apply wholesale price default
         applyWholesalePriceDefault(product);
 
-        // 3. Zero-Trust Price Override for new variants of existing families.
+        // 3. Inject audit identity (Zero-Trust: ID comes from the server, never the client)
+        product.setCreadoPor(usuarioId != null ? usuarioId : 0L);
+        product.setActualizadoPor(usuarioId != null ? usuarioId : 0L);
+
+        // 4. Zero-Trust Price Override for new variants of existing families.
         //    When a new variant is being added (not a generic codigo='1'), look up the
         //    existing family and enforce the family's current retail/wholesale prices.
         //    This prevents price drift between siblings caused by a cashier entering a
@@ -151,15 +156,15 @@ public class ProductService {
             }
         }
 
-        // 4. Check for variant collision (after price override, so the enforced prices are compared)
+        // 5. Check for variant collision (after price override, so the enforced prices are compared)
         checkVariantCollision(product, null);
 
-        // 5. Persist
+        // 6. Persist
         return repository.save(product);
     }
 
     @Transactional
-    public void update(Long id, Product product) {
+    public void update(Long id, Product product, Long usuarioId) {
         // 1. Basic Validation
         validate(product);
         applyWholesalePriceDefault(product);
@@ -191,10 +196,12 @@ public class ProductService {
         // 5. Cascade Update: Apply new descripcion, precioMinorista, precioMayorista (and optionally
         //    codigo) to ALL active siblings, including the product being edited itself.
         //    Note: precioCosto is intentionally NOT cascaded — each variant has its own purchase cost.
+        long resolvedUserId = usuarioId != null ? usuarioId : 0L;
         for (Product sibling : siblings) {
             sibling.setDescripcion(product.getDescripcion());
             sibling.setPrecioMinorista(product.getPrecioMinorista());
             sibling.setPrecioMayorista(product.getPrecioMayorista());
+            sibling.setActualizadoPor(resolvedUserId);
             if (codeChanged) {
                 sibling.setCodigo(product.getCodigo());
             }
@@ -211,6 +218,7 @@ public class ProductService {
         boolean editedProductSaved = siblings.stream().anyMatch(s -> s.getId().equals(id));
         if (!editedProductSaved) {
             product.setId(id);
+            product.setActualizadoPor(resolvedUserId);
             repository.save(product);
         }
     }

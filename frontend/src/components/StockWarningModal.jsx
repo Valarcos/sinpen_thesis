@@ -3,52 +3,120 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import './StockWarningModal.css';
 
-export default function StockWarningModal({ affectedProducts, onClose, onContinue, onStockCorrected }) {
-    const [editingProduct, setEditingProduct] = useState(null);
+/**
+ * Renders a single warning list item with an inline location selector
+ * and a 1-click auto-correct button. Each item manages its own locations
+ * state independently to prevent cross-item interference.
+ */
+function WarningListItem({ product, onStockCorrected }) {
     const [locations, setLocations] = useState([]);
     const [selectedLocation, setSelectedLocation] = useState('');
-    const [adjustQuantity, setAdjustQuantity] = useState('');
-    const [loadingLocs, setLoadingLocs] = useState(false);
+    const [isCorrecting, setIsCorrecting] = useState(false);
+    const [loadingLocs, setLoadingLocs] = useState(true);
+
+    // Calculate the exact missing amount — the system does the math for the user.
+    const missingQty = Math.max(0, product.cartQuantity - product.cantidadStock);
 
     useEffect(() => {
-        if (editingProduct) {
-            setLoadingLocs(true);
-            api.get(`/stock/producto/${editingProduct.id}`)
-                .then(res => {
-                    setLocations(res.data);
-                    // Issue #9 fix: use ubicacionId (FK to ubicaciones), NOT id (the stock_por_ubicacion row PK)
-                    if (res.data.length > 0) setSelectedLocation(res.data[0].ubicacionId);
-                })
-                .catch(err => {
-                    console.error("Error fetching locations", err);
-                    toast.error("Error al cargar ubicaciones");
-                })
-                .finally(() => setLoadingLocs(false));
-        }
-    }, [editingProduct]);
+        // Defensive: guard against invalid productId
+        if (!product?.id) return;
 
-    const handleCorrectStock = async () => {
-        if (!selectedLocation || !adjustQuantity || parseInt(adjustQuantity) <= 0) {
-            toast.error("Datos inválidos");
+        setLoadingLocs(true);
+        api.get(`/stock/producto/${product.id}`)
+            .then(res => {
+                const locs = res.data || [];
+                setLocations(locs);
+                // Defensive: fallback to primary location (1) if no locations exist yet
+                // (new product that never had stock initialized)
+                if (locs.length > 0) {
+                    setSelectedLocation(String(locs[0].ubicacionId));
+                } else {
+                    setSelectedLocation('1');
+                }
+            })
+            .catch(err => {
+                console.error(`Error fetching locations for product ${product.id}`, err);
+                toast.error('Error al cargar ubicaciones');
+                // Fallback: allow correction against primary location
+                setSelectedLocation('1');
+            })
+            .finally(() => setLoadingLocs(false));
+    }, [product.id]);
+
+    const handleAutoCorrect = async () => {
+        if (isCorrecting) return; // Double-submit protection (GEMINI.md Rule 3)
+        if (!selectedLocation) {
+            toast.error('Seleccione una ubicación');
+            return;
+        }
+        if (missingQty <= 0) {
+            toast.error('No hay déficit de stock que corregir');
             return;
         }
 
+        setIsCorrecting(true);
         try {
             await api.post('/stock/add', {
-                productoId: editingProduct.id,
-                ubicacionId: parseInt(selectedLocation),
-                cantidad: parseInt(adjustQuantity)
+                productoId: product.id,
+                ubicacionId: parseInt(selectedLocation, 10),
+                cantidad: missingQty
             });
-            toast.success("Stock corregido exitosamente");
-            setEditingProduct(null);
-            // Issue #3: Refresh the product in parent so it can re-evaluate and close if needed
-            if (onStockCorrected) onStockCorrected();
+            toast.success(`Stock de "${product.descripcion}" corregido (+${missingQty})`);
+            // Notify parent with the specific productId so VentaPage can do a targeted refresh
+            if (onStockCorrected) onStockCorrected(product.id);
         } catch (error) {
-            console.error("Error adjusting stock", error);
-            toast.error("Error al corregir stock");
+            console.error('Error auto-correcting stock', error);
+            const msg = error.response?.data?.message || 'Error al corregir stock';
+            toast.error(msg);
+        } finally {
+            setIsCorrecting(false);
         }
     };
 
+    return (
+        <li className="warning-item">
+            <div className="warning-info">
+                <span className="warning-name">{product.descripcion}</span>
+                <span className="warning-stock">
+                    Stock: {product.cantidadStock} | A vender: {product.cartQuantity} | Faltante: {missingQty}
+                </span>
+                {loadingLocs ? (
+                    <span style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.3rem' }}>
+                        Cargando ubicaciones...
+                    </span>
+                ) : (
+                    <div className="warning-inline-controls">
+                        <select
+                            value={selectedLocation}
+                            onChange={e => setSelectedLocation(e.target.value)}
+                            className="warning-location-select"
+                            disabled={isCorrecting}
+                        >
+                            {locations.length > 0 ? (
+                                locations.map(loc => (
+                                    <option key={loc.id} value={String(loc.ubicacionId)}>
+                                        {loc.nombreUbicacion || `Ubicación ${loc.ubicacionId}`} (Actual: {loc.cantidad})
+                                    </option>
+                                ))
+                            ) : (
+                                <option value="1">Ubicación Principal</option>
+                            )}
+                        </select>
+                        <button
+                            className="correct-btn"
+                            onClick={handleAutoCorrect}
+                            disabled={isCorrecting}
+                        >
+                            {isCorrecting ? 'Corrigiendo...' : `Auto-Corregir (+${missingQty})`}
+                        </button>
+                    </div>
+                )}
+            </div>
+        </li>
+    );
+}
+
+export default function StockWarningModal({ affectedProducts, onClose, onContinue, onStockCorrected }) {
     if (!affectedProducts || affectedProducts.length === 0) return null;
 
     return (
@@ -58,69 +126,21 @@ export default function StockWarningModal({ affectedProducts, onClose, onContinu
                     <h2>⚠️ Advertencia de Stock Negativo</h2>
                 </div>
 
-                {!editingProduct ? (
-                    <>
-                        <p>Los siguientes productos tienen stock insuficiente:</p>
-                        <ul className="warning-list">
-                            {affectedProducts.map(p => (
-                                <li key={p.id} className="warning-item">
-                                    <div className="warning-info">
-                                        <span className="warning-name">{p.descripcion}</span>
-                                        <span className="warning-stock">Stock Actual: {p.cantidadStock} | Productos a vender: {p.cartQuantity}</span>
-                                    </div>
-                                    <button
-                                        className="correct-btn"
-                                        onClick={() => setEditingProduct(p)}
-                                    >
-                                        Corregir
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                        <div className="modal-actions">
-                            <button className="cancel-btn" onClick={onClose}>Cancelar Venta</button>
-                            <button className="continue-btn" onClick={onContinue}>Ignorar y Continuar</button>
-                        </div>
-                    </>
-                ) : (
-                    <div className="adjustment-screen">
-                        <h3>Corregir: {editingProduct.descripcion}</h3>
-                        <p>Agregar stock para cubrir la venta.</p>
+                <p>Los siguientes productos tienen stock insuficiente:</p>
+                <ul className="warning-list">
+                    {affectedProducts.map(p => (
+                        <WarningListItem
+                            key={p.id}
+                            product={p}
+                            onStockCorrected={onStockCorrected}
+                        />
+                    ))}
+                </ul>
 
-                        {loadingLocs ? <p>Cargando ubicaciones...</p> : (
-                            <div className="form-group">
-                                <label>Ubicación:</label>
-                                <select
-                                    value={selectedLocation}
-                                    onChange={e => setSelectedLocation(e.target.value)}
-                                    style={{ width: '100%', padding: '0.5rem', marginBottom: '1rem' }}
-                                >
-                                    {locations.map(loc => (
-                                        <option key={loc.id} value={loc.ubicacionId}>
-                                            {loc.nombreUbicacion || `Ubicación ${loc.ubicacionId}`} (Actual: {loc.cantidad})
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-
-                        <div className="form-group">
-                            <label>Cantidad a Agregar:</label>
-                            <input
-                                type="number"
-                                value={adjustQuantity}
-                                onChange={e => setAdjustQuantity(e.target.value)}
-                                min="1"
-                                style={{ width: '100%', padding: '0.5rem', marginBottom: '1rem' }}
-                            />
-                        </div>
-
-                        <div className="modal-actions">
-                            <button className="cancel-btn" onClick={() => setEditingProduct(null)}>Volver</button>
-                            <button className="save-btn" onClick={handleCorrectStock}>Guardar Corrección</button>
-                        </div>
-                    </div>
-                )}
+                <div className="modal-actions">
+                    <button className="cancel-btn" onClick={onClose}>Cancelar Venta</button>
+                    <button className="continue-btn" onClick={onContinue}>Ignorar y Continuar</button>
+                </div>
             </div>
         </div>
     );

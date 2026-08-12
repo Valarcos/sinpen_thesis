@@ -16,6 +16,7 @@ public class VentaResponse {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime fecha;
     private String clienteNombre;
+    private Long clienteId;
     private String vendedorNombre; // Name of the user who made the sale
     private Double totalVenta;
     private Double descuentoGlobal;

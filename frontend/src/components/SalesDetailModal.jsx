@@ -43,6 +43,7 @@ export default function SalesDetailModal({ sale, onClose, printMode = 'ticket', 
                 codigo: d.productoCodigo || d.codigoSnapshot,
                 descripcion: d.productoNombre || d.descripcionSnapshot,
                 quantity: d.cantidad,
+                returnedQuantity: d.cantidadDevuelta || 0,
                 unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                 discount: d.descuentoValor || 0,
                 reason: d.razonDescuento || null,
@@ -83,6 +84,7 @@ export default function SalesDetailModal({ sale, onClose, printMode = 'ticket', 
                     codigo: d.productoCodigo || d.codigoSnapshot,
                     descripcion: d.productoNombre || d.descripcionSnapshot,
                     quantity: d.cantidad,
+                    returnedQuantity: d.cantidadDevuelta || 0,
                     unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
                     reason: d.razonDescuento || null,
@@ -136,7 +138,14 @@ export default function SalesDetailModal({ sale, onClose, printMode = 'ticket', 
                                     <div className="product-name-cell">{d.descripcionSnapshot || d.productoNombre}</div>
                                     <small className="text-muted">{d.codigoSnapshot || d.productoCodigo}</small>
                                 </td>
-                                <td data-label="Cant">{d.cantidad}</td>
+                                <td data-label="Cant">
+                                    {d.cantidad}
+                                    {d.cantidadDevuelta > 0 && (
+                                        <span style={{color: '#dc2626', fontSize: '0.8rem', marginLeft: '4px', fontWeight: 'bold'}}>
+                                            (-{d.cantidadDevuelta})
+                                        </span>
+                                    )}
+                                </td>
                                 <td data-label="P. Unit">{formatCurrency(d.precioUnitario)}</td>
                                 <td data-label="Subtotal">{formatCurrency(d.delineaTotal || d.subtotal)}</td>
                             </tr>

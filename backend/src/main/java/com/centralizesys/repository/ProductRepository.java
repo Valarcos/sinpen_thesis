@@ -3,7 +3,6 @@ package com.centralizesys.repository;
 import com.centralizesys.model.product.Product;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.core.namedparam.BeanPropertySqlParameterSource;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.namedparam.SqlParameterSource;
@@ -11,6 +10,8 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +29,9 @@ public class ProductRepository {
     private static final String PARAM_TERMINO = "termino";
     private static final String PARAM_LIMIT = "limit";
     private static final String PARAM_OFFSET = "offset";
+    private static final String PARAM_CREADO_POR = "creadoPor";
+    private static final String PARAM_ACTUALIZADO_POR = "actualizadoPor";
+    private static final ZoneId ZONE_AR = ZoneId.of("America/Argentina/Buenos_Aires");
 
     public ProductRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -39,15 +43,22 @@ public class ProductRepository {
         // Safe nullable Double extraction - handles empty strings from old SQLite-era data
         Double precioMayorista = parseNullableDouble(rs.getString("precio_mayorista"));
 
-        return new Product(
-                rs.getLong("id"),
-                rs.getString(PARAM_CODIGO),
-                rs.getString(PARAM_DESCRIPCION),
-                rs.getDouble("precio_costo"),
-                precioMayorista,
-                rs.getDouble("precio_minorista"),
-                rs.getLong("cantidad_stock"),
-                rs.getBoolean("activo"));
+        return Product.builder()
+                .id(rs.getLong("id"))
+                .codigo(rs.getString(PARAM_CODIGO))
+                .descripcion(rs.getString(PARAM_DESCRIPCION))
+                .precioCosto(rs.getDouble("precio_costo"))
+                .precioMayorista(precioMayorista)
+                .precioMinorista(rs.getDouble("precio_minorista"))
+                .cantidadStock(rs.getLong("cantidad_stock"))
+                .activo(rs.getBoolean("activo"))
+                .fechaCreacion(rs.getTimestamp("fecha_creacion") != null
+                        ? rs.getTimestamp("fecha_creacion").toLocalDateTime() : null)
+                .fechaActualizacion(rs.getTimestamp("fecha_actualizacion") != null
+                        ? rs.getTimestamp("fecha_actualizacion").toLocalDateTime() : null)
+                .creadoPor(rs.getLong("creado_por"))
+                .actualizadoPor(rs.getLong("actualizado_por"))
+                .build();
     };
 
     /**
@@ -73,6 +84,12 @@ public class ProductRepository {
 
     public Optional<Product> findById(Long id) {
         String sql = "SELECT * FROM productos WHERE id = :id AND activo = true";
+        List<Product> results = namedJdbcTemplate.query(sql, new MapSqlParameterSource(PARAM_ID, id), rowMapper);
+        return results.stream().findFirst();
+    }
+
+    public Optional<Product> findByIdIncludingInactive(Long id) {
+        String sql = "SELECT * FROM productos WHERE id = :id";
         List<Product> results = namedJdbcTemplate.query(sql, new MapSqlParameterSource(PARAM_ID, id), rowMapper);
         return results.stream().findFirst();
     }
@@ -174,16 +191,33 @@ public class ProductRepository {
     }
 
     private Product insert(Product p) {
-        // NOTA: No insertamos cantidad_stock explícitamente, dejamos el DEFAULT 0
-        // [NOTE] Params (:codigo, :descripcion, etc) match DTO fields automatically via
-        // BeanPropertySqlParameterSource
+        // Stamp audit timestamps in Java (UTC-3) so the returned object has the same value
+        // the DB will record, avoiding a second SELECT round-trip (Pitfall 1 mitigation).
+        LocalDateTime now = LocalDateTime.now(ZONE_AR);
+        p.setFechaCreacion(now);
+        p.setFechaActualizacion(now);
+
+        // NOTA: No insertamos cantidad_stock explícitamente, dejamos el DEFAULT 0.
         String sql = """
-                    INSERT INTO productos (codigo, descripcion, precio_costo, precio_mayorista, precio_minorista)
-                    VALUES (:codigo, :descripcion, :precioCosto, :precioMayorista, :precioMinorista)
+                    INSERT INTO productos
+                        (codigo, descripcion, precio_costo, precio_mayorista, precio_minorista,
+                         fecha_creacion, fecha_actualizacion, creado_por, actualizado_por)
+                    VALUES
+                        (:codigo, :descripcion, :precioCosto, :precioMayorista, :precioMinorista,
+                         :fechaCreacion, :fechaActualizacion, :creadoPor, :actualizadoPor)
                 """;
 
         KeyHolder keyHolder = new GeneratedKeyHolder();
-        SqlParameterSource params = new BeanPropertySqlParameterSource(p);
+        SqlParameterSource params = new MapSqlParameterSource()
+                .addValue(PARAM_CODIGO, p.getCodigo())
+                .addValue(PARAM_DESCRIPCION, p.getDescripcion())
+                .addValue("precioCosto", p.getPrecioCosto())
+                .addValue("precioMayorista", p.getPrecioMayorista())
+                .addValue("precioMinorista", p.getPrecioMinorista())
+                .addValue("fechaCreacion", p.getFechaCreacion())
+                .addValue("fechaActualizacion", p.getFechaActualizacion())
+                .addValue(PARAM_CREADO_POR, p.getCreadoPor())
+                .addValue(PARAM_ACTUALIZADO_POR, p.getActualizadoPor());
 
         namedJdbcTemplate.update(sql, params, keyHolder, new String[]{"id"});
 
@@ -197,7 +231,11 @@ public class ProductRepository {
     private Product update(Product p) {
         // NOTA: NO actualizamos cantidad_stock aquí.
         // El stock se modifica SOLO moviendo items en stock_por_ubicacion (Triggers).
-
+        //
+        // AUDIT SAFETY: fecha_creacion and creado_por are intentionally EXCLUDED from the
+        // SET clause to preserve original creation data (Pitfall 4 mitigation).
+        // fecha_actualizacion is handled by the DB trigger trg_update_producto_timestamp.
+        //
         // TODO: update should be monitored. The article code shouldn't be updated, but
         // based on the possible case of low quality products with NO inherent art code,
         // it may be required.
@@ -207,10 +245,18 @@ public class ProductRepository {
                         descripcion = :descripcion,
                         precio_costo = :precioCosto,
                         precio_mayorista = :precioMayorista,
-                        precio_minorista = :precioMinorista
+                        precio_minorista = :precioMinorista,
+                        actualizado_por = :actualizadoPor
                     WHERE id = :id
                 """;
-        SqlParameterSource params = new BeanPropertySqlParameterSource(p);
+        SqlParameterSource params = new MapSqlParameterSource()
+                .addValue(PARAM_CODIGO, p.getCodigo())
+                .addValue(PARAM_DESCRIPCION, p.getDescripcion())
+                .addValue("precioCosto", p.getPrecioCosto())
+                .addValue("precioMayorista", p.getPrecioMayorista())
+                .addValue("precioMinorista", p.getPrecioMinorista())
+                .addValue(PARAM_ACTUALIZADO_POR, p.getActualizadoPor())
+                .addValue(PARAM_ID, p.getId());
         namedJdbcTemplate.update(sql, params);
         return p;
     }

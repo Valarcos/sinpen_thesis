@@ -60,19 +60,24 @@ public class ProductController {
     // POST /api/productos
     @PostMapping
     public ResponseEntity<ProductResponse> create(@RequestBody ProductRequest request) {
+        // Zero-Trust: Extract identity from the validated JWT, never from the request body.
+        Long usuarioId = SecurityUtils.getAuthenticatedUserId();
+
         // Map DTO -> Model
-        Product newProduct = new Product(
-                request.getCodigo(),
-                request.getDescripcion(),
-                request.getPrecioCosto(),
-                request.getPrecioMayorista(),
-                request.getPrecioMinorista());
+        Product newProduct = Product.builder()
+                .codigo(request.getCodigo())
+                .descripcion(request.getDescripcion())
+                .precioCosto(request.getPrecioCosto())
+                .precioMayorista(request.getPrecioMayorista())
+                .precioMinorista(request.getPrecioMinorista())
+                .build();
 
         // Delegate creation and initial stock handling to Service
         Product saved = service.createWithStock(
                 newProduct,
                 request.getUbicacionId(),
-                request.getCantidad() != null ? request.getCantidad().longValue() : null);
+                request.getCantidad() != null ? request.getCantidad().longValue() : null,
+                usuarioId);
 
         return new ResponseEntity<>(new ProductResponse(saved), HttpStatus.CREATED);
     }
@@ -81,15 +86,19 @@ public class ProductController {
     @PutMapping("/{id}")
     public ResponseEntity<Void> update(@PathVariable Long id,
                                        @RequestBody ProductRequest request) {
-        // Map DTO -> Model
-        Product updatedProduct = new Product(
-                request.getCodigo(),
-                request.getDescripcion(),
-                request.getPrecioCosto(),
-                request.getPrecioMayorista(),
-                request.getPrecioMinorista());
+        // Zero-Trust: Extract identity from the validated JWT, never from the request body.
+        Long usuarioId = SecurityUtils.getAuthenticatedUserId();
 
-        service.update(id, updatedProduct);
+        // Map DTO -> Model
+        Product updatedProduct = Product.builder()
+                .codigo(request.getCodigo())
+                .descripcion(request.getDescripcion())
+                .precioCosto(request.getPrecioCosto())
+                .precioMayorista(request.getPrecioMayorista())
+                .precioMinorista(request.getPrecioMinorista())
+                .build();
+
+        service.update(id, updatedProduct, usuarioId);
         return ResponseEntity.noContent().build();
     }
 

@@ -32,4 +32,15 @@ public class MetodoPagoRepository {
         List<MetodoPago> results = jdbcTemplate.query("SELECT * FROM metodos_pago WHERE id = ?", rowMapper, id);
         return results.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(results.getFirst());
     }
+
+    /**
+     * Looks up a payment method by its acronym string.
+     * The service layer uses this (e.g., 'SALDO') so it never relies
+     * on a hardcoded auto-incremented ID that can differ between environments.
+     */
+    public java.util.Optional<MetodoPago> findByAcronimo(String acronimo) {
+        List<MetodoPago> results = jdbcTemplate.query(
+                "SELECT * FROM metodos_pago WHERE acronimo = ?", rowMapper, acronimo);
+        return results.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(results.getFirst());
+    }
 }

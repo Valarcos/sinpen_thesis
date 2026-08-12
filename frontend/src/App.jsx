@@ -9,6 +9,7 @@ import ReportesPage from './pages/ReportesPage';
 import CobrosYPedidosPage from './pages/CobrosYPedidosPage';
 import VentaPage from './pages/VentaPage';
 import InventarioPage from './pages/InventarioPage';
+import ErrorBoundaryPage from './pages/ErrorBoundaryPage';
 
 // ...
 
@@ -58,6 +59,7 @@ const router = createBrowserRouter([
     },
     {
         path: '/',
+        errorElement: <ErrorBoundaryPage />,
         element: (
             <ProtectedRoute>
                 <AppLayout />

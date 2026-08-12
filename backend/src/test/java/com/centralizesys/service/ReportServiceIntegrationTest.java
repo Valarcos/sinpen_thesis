@@ -297,4 +297,58 @@ class ReportServiceIntegrationTest extends BaseIntegrationTest {
         // This assertion proves the double-counting bug is gone.
         assertEquals(cashFlowBefore, cashFlowAfter, 0.001, "Cash flow today must not include yesterday's migrated payment.");
     }
+    @Test
+    void shouldDeductRefundsFromTotalRevenueAndQuantity() {
+        // 1. Arrange: Create a Sale
+        Long userId = createTestUser();
+        Long productId = createTestProduct("STAT-PHANTOM-BUG", 100.0, 50L);
+        jdbcTemplate.update("UPDATE productos SET precio_costo = 40.0 WHERE id = ?", productId);
+
+        jdbcTemplate.update(
+                "INSERT INTO ventas (cliente_nombre, total_venta, fecha, fecha_creacion, estado, usuario_id) " +
+                        "VALUES ('Phantom Bug Client', 500.0, NOW(), NOW(), 'ACTIVA', ?)", userId);
+        Long ventaId = jdbcTemplate.queryForObject(
+                "SELECT id FROM ventas WHERE cliente_nombre = 'Phantom Bug Client'", Long.class);
+
+        // Insert Detalle (qty 5, price 100, cost 40) => subtotal 500, COGS 200
+        jdbcTemplate.update(
+                "INSERT INTO detalles_venta (venta_id, producto_id, cantidad, precio_lista, precio_unitario, subtotal, costo_snapshot, anulado, descripcion_snapshot, codigo_snapshot) " +
+                        "VALUES (?, ?, 5, 100.0, 100.0, 500.0, 40.0, false, 'Test Product', 'CODE-123')", ventaId, productId);
+        Long detalleId = jdbcTemplate.queryForObject(
+                "SELECT id FROM detalles_venta WHERE venta_id = ?", Long.class, ventaId);
+
+        // Get initial stats
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        com.centralizesys.model.sales.ReportesEstadisticasDTO statsBefore = reportService.getEstadisticas(now.getYear(), now.getMonthValue(), now.getDayOfMonth());
+
+        double revenueBefore = statsBefore.getRendimientoComercial().getIngresosVentas();
+        double cogsBefore = statsBefore.getRendimientoComercial().getCostoTotalVendido();
+        long qtyBefore = statsBefore.getRendimientoComercial().getProductosVendidos();
+
+        // 2. Act: Insert a Devolucion (return 2 items, refund 200)
+        jdbcTemplate.update(
+                "INSERT INTO devoluciones_venta (venta_id, detalle_venta_id, cantidad_devuelta, monto_reembolsado, fecha_devolucion, tipo_reembolso) " +
+                        "VALUES (?, ?, 2, 200.0, NOW(), 'EFECTIVO')", ventaId, detalleId);
+
+        // Also add the negative payment to pagos_venta (as registrarDevolucionParcial does)
+        jdbcTemplate.update(
+                "INSERT INTO pagos_venta (venta_id, metodo_pago_id, monto, fecha_pago, anulado, usuario_id) " +
+                        "VALUES (?, 1, -200.0, NOW(), false, ?)", ventaId, userId);
+
+        // 3. Assert
+        com.centralizesys.model.sales.ReportesEstadisticasDTO statsAfter = reportService.getEstadisticas(now.getYear(), now.getMonthValue(), now.getDayOfMonth());
+
+        double revenueAfter = statsAfter.getRendimientoComercial().getIngresosVentas();
+        double cogsAfter = statsAfter.getRendimientoComercial().getCostoTotalVendido();
+        long qtyAfter = statsAfter.getRendimientoComercial().getProductosVendidos();
+
+        // Revenue should be exactly 200 less than before
+        assertEquals(revenueBefore - 200.0, revenueAfter, 0.001, "Revenue must deduct refunded amount.");
+
+        // COGS should be exactly 80 less than before (2 items * 40 cost)
+        assertEquals(cogsBefore - 80.0, cogsAfter, 0.001, "COGS must deduct returned items cost.");
+
+        // Qty sold should be 2 less than before
+        assertEquals(qtyBefore - 2L, qtyAfter, "Quantity sold must deduct returned items.");
+    }
 }

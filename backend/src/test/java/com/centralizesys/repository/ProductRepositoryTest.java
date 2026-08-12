@@ -17,15 +17,22 @@ class ProductRepositoryTest extends BaseIntegrationTest {
     private ProductRepository productRepository;
 
     @Test
-    @DisplayName("Save inserts a new product and returns Generated ID")
+    @DisplayName("Save inserts a new product and returns Generated ID and Audit Fields")
     void save_InsertsNewProduct() {
         // Manually create object WITHOUT ID for save test
-        Product p = new Product("A-001", "Test Product", 50.0, 80.0, 100.0);
+        // 5-arg constructor leaves audit fields as null/0L by default
+        Product p = Product.builder().codigo("A-001").descripcion("Test Product").precioCosto(50.0).precioMayorista(80.0).precioMinorista(100.0).build();
 
         Product saved = productRepository.save(p);
 
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCodigo()).isEqualTo("A-001");
+
+        // Assert Audit Fields are populated correctly by the Repository mapping
+        assertThat(saved.getFechaCreacion()).isNotNull();
+        assertThat(saved.getFechaActualizacion()).isNotNull();
+        assertThat(saved.getCreadoPor()).isNotNull();
+        assertThat(saved.getActualizadoPor()).isNotNull();
     }
 
     @Test
@@ -118,7 +125,7 @@ class ProductRepositoryTest extends BaseIntegrationTest {
         Long id1 = createTestProduct("SEARCH-1", 10.0, 10L);
 
         // Create second product manually to specify description
-        Product p2 = new Product("SEARCH-2", "Orange Juice", 20.0, null, 40.0);
+        Product p2 = Product.builder().codigo("SEARCH-2").descripcion("Orange Juice").precioCosto(20.0).precioMayorista(null).precioMinorista(40.0).build();
         productRepository.save(p2);
 
         // Update the first one to have "Apple Juice"
@@ -142,7 +149,7 @@ class ProductRepositoryTest extends BaseIntegrationTest {
         createTestProduct("9123", 10.0, 10L);
 
         // Product 3: Description contains "123" but code does not
-        Product p3 = new Product("TEXT-CODE", "Product 123", 20.0, null, 40.0);
+        Product p3 = Product.builder().codigo("TEXT-CODE").descripcion("Product 123").precioCosto(20.0).precioMayorista(null).precioMinorista(40.0).build();
         productRepository.save(p3);
 
         List<Product> results = productRepository.search("123");
@@ -190,12 +197,12 @@ class ProductRepositoryTest extends BaseIntegrationTest {
     @DisplayName("Partial Unique Index allows re-creating product with same code if previous is soft-deleted")
     void partialUniqueIndex_AllowsReuseOfCodeIfDeleted() {
         // 1. Create a product and soft delete it
-        Product p1 = new Product("UNIQUE-CODE", "Desc 1", 10.0, 15.0, 20.0);
+        Product p1 = Product.builder().codigo("UNIQUE-CODE").descripcion("Desc 1").precioCosto(10.0).precioMayorista(15.0).precioMinorista(20.0).build();
         Product saved1 = productRepository.save(p1);
         productRepository.deleteById(saved1.getId());
 
         // 2. Create another product with the exact same unique fields
-        Product p2 = new Product("UNIQUE-CODE", "Desc 2", 10.0, 15.0, 20.0);
+        Product p2 = Product.builder().codigo("UNIQUE-CODE").descripcion("Desc 2").precioCosto(10.0).precioMayorista(15.0).precioMinorista(20.0).build();
 
         // 3. Save should succeed without DataIntegrityViolationException
         Product saved2 = productRepository.save(p2);
@@ -260,12 +267,12 @@ class ProductRepositoryTest extends BaseIntegrationTest {
         jdbcTemplate.update("INSERT INTO ubicaciones (id, nombre) VALUES (999, 'Test') ON CONFLICT(id) DO NOTHING");
 
         // Generic Apples: 10 units at $10
-        Product p1 = new Product("1", "Apples", 10.0, 15.0, 20.0);
+        Product p1 = Product.builder().codigo("1").descripcion("Apples").precioCosto(10.0).precioMayorista(15.0).precioMinorista(20.0).build();
         productRepository.save(p1);
         jdbcTemplate.update("INSERT INTO stock_por_ubicacion (producto_id, ubicacion_id, cantidad) VALUES (?, 999, 10)", p1.getId());
 
         // Generic Oranges: 10 units at $50
-        Product p2 = new Product("1", "Oranges", 50.0, 60.0, 70.0);
+        Product p2 = Product.builder().codigo("1").descripcion("Oranges").precioCosto(50.0).precioMayorista(60.0).precioMinorista(70.0).build();
         productRepository.save(p2);
         jdbcTemplate.update("INSERT INTO stock_por_ubicacion (producto_id, ubicacion_id, cantidad) VALUES (?, 999, 10)", p2.getId());
 
@@ -280,11 +287,11 @@ class ProductRepositoryTest extends BaseIntegrationTest {
     void findWAC_DescriptionFilterIsCaseInsensitive() {
         jdbcTemplate.update("INSERT INTO ubicaciones (id, nombre) VALUES (999, 'Test') ON CONFLICT(id) DO NOTHING");
 
-        Product p1 = new Product("1", "Manzanas", 10.0, 15.0, 20.0);
+        Product p1 = Product.builder().codigo("1").descripcion("Manzanas").precioCosto(10.0).precioMayorista(15.0).precioMinorista(20.0).build();
         productRepository.save(p1);
         jdbcTemplate.update("INSERT INTO stock_por_ubicacion (producto_id, ubicacion_id, cantidad) VALUES (?, 999, 10)", p1.getId());
 
-        Product p2 = new Product("1", " manzanas ", 50.0, 60.0, 70.0);
+        Product p2 = Product.builder().codigo("1").descripcion(" manzanas ").precioCosto(50.0).precioMayorista(60.0).precioMinorista(70.0).build();
         productRepository.save(p2);
         jdbcTemplate.update("INSERT INTO stock_por_ubicacion (producto_id, ubicacion_id, cantidad) VALUES (?, 999, 10)", p2.getId());
 
@@ -298,9 +305,9 @@ class ProductRepositoryTest extends BaseIntegrationTest {
     @DisplayName("findSiblingsByFamily_ReturnsSortedByIdAsc")
     void findSiblingsByFamily_ReturnsSortedByIdAsc() {
         // Insert oldest first (Id will be lowest)
-        Product p1 = productRepository.save(new Product("FAM-SORT", "Desc", 10.0, 20.0, 30.0));
-        Product p2 = productRepository.save(new Product("FAM-SORT", "Desc", 15.0, 20.0, 30.0));
-        Product p3 = productRepository.save(new Product("FAM-SORT", "Desc", 12.0, 20.0, 30.0));
+        Product p1 = productRepository.save(Product.builder().codigo("FAM-SORT").descripcion("Desc").precioCosto(10.0).precioMayorista(20.0).precioMinorista(30.0).build());
+        Product p2 = productRepository.save(Product.builder().codigo("FAM-SORT").descripcion("Desc").precioCosto(15.0).precioMayorista(20.0).precioMinorista(30.0).build());
+        Product p3 = productRepository.save(Product.builder().codigo("FAM-SORT").descripcion("Desc").precioCosto(12.0).precioMayorista(20.0).precioMinorista(30.0).build());
 
         List<Product> siblings = productRepository.findSiblingsByFamily("FAM-SORT", null);
 
@@ -322,7 +329,7 @@ class ProductRepositoryTest extends BaseIntegrationTest {
         assertThat(productRepository.existsByCodigo("EXIST-999")).isFalse();
 
         // Soft-deleted code
-        Product p2 = productRepository.save(new Product("EXIST-DEL", "Desc", 10.0, 20.0, 30.0));
+        Product p2 = productRepository.save(Product.builder().codigo("EXIST-DEL").descripcion("Desc").precioCosto(10.0).precioMayorista(20.0).precioMinorista(30.0).build());
         productRepository.deleteById(p2.getId());
         assertThat(productRepository.existsByCodigo("EXIST-DEL")).isFalse();
     }
@@ -334,14 +341,14 @@ class ProductRepositoryTest extends BaseIntegrationTest {
 
         // Create 3 products matching "SEARCH-ORD"
         // P1: Stock 0, ID lowest
-        Product p1 = productRepository.save(new Product("SEARCH-ORD-1", "Desc", 10.0, 20.0, 30.0));
+        Product p1 = productRepository.save(Product.builder().codigo("SEARCH-ORD-1").descripcion("Desc").precioCosto(10.0).precioMayorista(20.0).precioMinorista(30.0).build());
 
         // P2: Stock 10
-        Product p2 = productRepository.save(new Product("SEARCH-ORD-2", "Desc", 10.0, 20.0, 30.0));
+        Product p2 = productRepository.save(Product.builder().codigo("SEARCH-ORD-2").descripcion("Desc").precioCosto(10.0).precioMayorista(20.0).precioMinorista(30.0).build());
         jdbcTemplate.update("INSERT INTO stock_por_ubicacion (producto_id, ubicacion_id, cantidad) VALUES (?, 999, 10)", p2.getId());
 
         // P3: Stock 0, ID highest
-        Product p3 = productRepository.save(new Product("SEARCH-ORD-3", "Desc", 10.0, 20.0, 30.0));
+        Product p3 = productRepository.save(Product.builder().codigo("SEARCH-ORD-3").descripcion("Desc").precioCosto(10.0).precioMayorista(20.0).precioMinorista(30.0).build());
 
         List<Product> results = productRepository.search("SEARCH-ORD");
 

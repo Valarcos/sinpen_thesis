@@ -6,7 +6,10 @@ import com.centralizesys.model.dto.PageResponse;
 import com.centralizesys.model.debt.PagoDeudaRequest;
 import com.centralizesys.model.product.Product;
 import com.centralizesys.model.product.StockLocation;
+import com.centralizesys.model.returns.DevolucionRequest;
 import com.centralizesys.model.sales.*;
+import com.centralizesys.repository.ClienteRepository;
+import com.centralizesys.repository.DevolucionesRepository;
 import com.centralizesys.repository.DeudoresRepository;
 import com.centralizesys.repository.ProductRepository;
 import com.centralizesys.repository.StockRepository;
@@ -36,6 +39,8 @@ public class VentaService {
     private final AuditoriaService auditoriaService;
     private final AlertaChequeRepository alertaChequeRepository;
     private final com.centralizesys.repository.MetodoPagoRepository metodoPagoRepository;
+    private final ClienteRepository clienteRepository;
+    private final DevolucionesRepository devolucionesRepository;
 
     private static final String ANULADA = "ANULADA";
     private static final String PENDIENTE = "PENDIENTE";
@@ -45,6 +50,7 @@ public class VentaService {
     private static final double PAYMENT_COMPLETE_EPSILON = 0.01;
     private static final String COBRADO = "COBRADO";
     private static final String ALERTA_CHEQUE = "AlertaCheque";
+    private static final String SALDO_ACRONIMO = "SALDO";
 
     public VentaService(VentaRepository ventaRepository,
                         ProductRepository productRepository,
@@ -52,14 +58,18 @@ public class VentaService {
                         DeudoresRepository deudoresRepository,
                         AuditoriaService auditoriaService,
                         AlertaChequeRepository alertaChequeRepository,
-                        com.centralizesys.repository.MetodoPagoRepository metodoPagoRepository) {
-        this.ventaRepository = ventaRepository;
-        this.productRepository = productRepository;
-        this.stockRepository = stockRepository;
-        this.deudoresRepository = deudoresRepository;
-        this.auditoriaService = auditoriaService;
+                        com.centralizesys.repository.MetodoPagoRepository metodoPagoRepository,
+                        ClienteRepository clienteRepository,
+                        DevolucionesRepository devolucionesRepository) {
+        this.ventaRepository       = ventaRepository;
+        this.productRepository     = productRepository;
+        this.stockRepository       = stockRepository;
+        this.deudoresRepository    = deudoresRepository;
+        this.auditoriaService      = auditoriaService;
         this.alertaChequeRepository = alertaChequeRepository;
-        this.metodoPagoRepository = metodoPagoRepository;
+        this.metodoPagoRepository  = metodoPagoRepository;
+        this.clienteRepository     = clienteRepository;
+        this.devolucionesRepository = devolucionesRepository;
     }
 
     public PageResponse<Venta> getVentasPage(String startDate, String endDate, Long searchId, int page, int size) {
@@ -103,6 +113,13 @@ public class VentaService {
     public VentaResponse getVentaById(Long id) {
         Venta venta = ventaRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Venta", id));
         List<DetalleVenta> detalles = ventaRepository.findDetallesByVentaId(id);
+
+        // Populate devoluciones para que el UI pueda calcular netRemaining
+        detalles.forEach(d -> {
+            Long yaDevuelta = devolucionesRepository.sumCantidadDevueltaByDetalleId(d.getId());
+            d.setCantidadDevuelta(yaDevuelta);
+        });
+
         List<PagoVenta> pagos = ventaRepository.findPagosActivosByVentaId(id);
         String vendedorNombre = ventaRepository.findVendedorNombre(venta.getUsuarioId());
 
@@ -110,6 +127,7 @@ public class VentaService {
                 venta.getId(),
                 venta.getFecha(),
                 venta.getClienteNombre(),
+                venta.getClienteId(),
                 vendedorNombre,
                 venta.getTotalVenta(),
                 venta.getDescuentoGlobal(),
@@ -145,7 +163,7 @@ public class VentaService {
 
         PersistedTransactionInfo txInfo = saveTransactionData(request, processedData);
         List<String> stockAlerts = updateStockFromDetails(processedData.getDetalles());
-        handleDebt(txInfo.getVentaId(), request.getClienteNombre(), processedData.getTotalVenta(), txInfo.getPagosPersistidos());
+        handleDebt(txInfo.getVentaId(), request.getClienteNombre(), request.getClienteId(), processedData.getTotalVenta(), txInfo.getPagosPersistidos());
 
         auditoriaService.registrarAccion(request.getUsuarioId(), "VENTA", "Venta ID " + txInfo.getVentaId() + " a " + request.getClienteNombre() + ". Total: $" + processedData.getTotalVenta() + " (Desc: " + descuentoGlobal + ")");
         String vendedorNombre = ventaRepository.findVendedorNombre(request.getUsuarioId());
@@ -154,6 +172,7 @@ public class VentaService {
                 txInfo.getVentaId(),
                 LocalDateTime.now(ZoneId.systemDefault()),
                 request.getClienteNombre(),
+                request.getClienteId(),
                 vendedorNombre,
                 processedData.getTotalVenta(),
                 descuentoGlobal,
@@ -216,6 +235,7 @@ public class VentaService {
                 txInfo.getVentaId(),
                 LocalDateTime.now(ZoneId.systemDefault()),
                 request.getClienteNombre(),
+                request.getClienteId(),
                 vendedorNombre,
                 processedData.getTotalVenta(),
                 descuentoGlobal,
@@ -299,74 +319,112 @@ public class VentaService {
         if (descuentoGlobal < 0 || descuentoGlobal > subtotal) throw new BusinessRuleException("Descuento global inválido.");
         Double finalTotal = Math.round((subtotal - descuentoGlobal) * 100.0) / 100.0;
 
+        Long pendingId = persistVentaPendienteBase(request, finalTotal, descuentoGlobal, authenticatedUserId);
+
+        List<DetalleVenta> detalles = processedData.getDetalles();
+        persistDetalles(pendingId, detalles);
+        updateStockFromDetails(detalles);
+
+        processPagosPendientes(pendingId, request, authenticatedUserId);
+        processChequesPendientes(pendingId, request);
+
+        auditoriaService.registrarAccion(authenticatedUserId, "CREAR_PENDIENTE", "Pedido creado con ID: " + pendingId);
+        return pendingId;
+    }
+
+    private Long persistVentaPendienteBase(VentaRequest request, Double finalTotal, Double descuentoGlobal, Long authenticatedUserId) {
         Venta pendingSale = new Venta();
         LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         pendingSale.setFecha(now);
         pendingSale.setFechaCreacion(now);
         pendingSale.setClienteNombre(request.getClienteNombre());
+        pendingSale.setClienteId(request.getClienteId());
         pendingSale.setTotalVenta(finalTotal);
         pendingSale.setDescuentoGlobal(descuentoGlobal);
         pendingSale.setTipoVenta(request.getTipoVenta() != null ? request.getTipoVenta().name() : MINORISTA);
         pendingSale.setUsuarioId(authenticatedUserId);
         pendingSale.setEstado(PENDIENTE);
+        return ventaRepository.saveVenta(pendingSale);
+    }
 
-        Long pendingId = ventaRepository.saveVenta(pendingSale);
-
-        List<DetalleVenta> detalles = processedData.getDetalles();
-        detalles.forEach(d -> {
-            d.setVentaId(pendingId);
-            d.setAnulado(false);
-        });
-        ventaRepository.saveDetalles(detalles);
-        updateStockFromDetails(detalles);
-
-        if (request.getPagos() != null) {
-            for (VentaRequest.PagoRequest pvr : request.getPagos()) {
-                ventaRepository.savePagoUnico(pendingId, pvr.getMetodoPagoId(), pvr.getMonto(), authenticatedUserId);
+    private void processPagosPendientes(Long pendingId, VentaRequest request, Long authenticatedUserId) {
+        if (request.getPagos() == null || request.getPagos().isEmpty()) return;
+        MetodoPago saldoMethod = metodoPagoRepository.findByAcronimo(SALDO_ACRONIMO).orElse(null);
+        Long saldoId = saldoMethod != null ? saldoMethod.getId() : null;
+        for (VentaRequest.PagoRequest pvr : request.getPagos()) {
+            if (saldoId != null && saldoId.equals(pvr.getMetodoPagoId())) {
+                if (request.getClienteId() == null) throw new BusinessRuleException("El pago con Saldo a Favor requiere un cliente seleccionado.");
+                int rows = clienteRepository.deductSaldo(request.getClienteId(), pvr.getMonto());
+                if (rows == 0) throw new BusinessRuleException("Saldo a favor insuficiente para el cliente.");
             }
+            ventaRepository.savePagoUnico(pendingId, pvr.getMetodoPagoId(), pvr.getMonto(), authenticatedUserId);
         }
-        if (request.getCheques() != null) {
-            for (AlertaChequeRequest chequeReq : request.getCheques()) {
-                AlertaCheque cheque = new AlertaCheque(null, pendingId, chequeReq.getMonto(), chequeReq.getFechaCobro(), PENDIENTE, null, null);
-                alertaChequeRepository.save(cheque);
-            }
+    }
+
+    private void processChequesPendientes(Long pendingId, VentaRequest request) {
+        if (request.getCheques() == null || request.getCheques().isEmpty()) return;
+        for (AlertaChequeRequest chequeReq : request.getCheques()) {
+            AlertaCheque cheque = new AlertaCheque(null, pendingId, chequeReq.getMonto(), chequeReq.getFechaCobro(), PENDIENTE, null, null);
+            alertaChequeRepository.save(cheque);
         }
-
-        auditoriaService.registrarAccion(authenticatedUserId, "CREAR_PENDIENTE", "Pedido creado con ID: " + pendingId);
-
-        return pendingId;
     }
 
     @Transactional
     public void registrarPago(Long id, List<PagoDeudaRequest> pagos, Long usuarioId) {
+        double totalNuevoPago = validatePagosPendientes(pagos);
+        Venta pendingSale = validateEstadoPendiente(id);
+        validateMontoPagoPendiente(id, totalNuevoPago, pendingSale.getTotalVenta());
+        processPagoPendienteRecords(id, pagos, pendingSale, usuarioId);
+
+        auditoriaService.registrarAccion(usuarioId, "PAGO_PENDIENTE", String.format("Registrado pago/cheque de $%.2f en Pedido ID %d.", totalNuevoPago, id));
+    }
+
+    private double validatePagosPendientes(List<PagoDeudaRequest> pagos) {
         if (pagos == null || pagos.isEmpty()) throw new BusinessRuleException(Constants.ERR_PAYMENT_NEGATIVE);
         double totalNuevoPago = pagos.stream().mapToDouble(PagoDeudaRequest::getMontoPago).sum();
         if (totalNuevoPago <= 0) throw new BusinessRuleException(Constants.ERR_PAYMENT_NEGATIVE);
+        return totalNuevoPago;
+    }
 
+    private Venta validateEstadoPendiente(Long id) {
         Venta pendingSale = ventaRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException(VENTA_PENDIENTE, id));
         if (!PENDIENTE.equals(pendingSale.getEstado())) throw new BusinessRuleException("Solo se pueden registrar pagos en pedidos con estado PENDIENTE.");
+        return pendingSale;
+    }
 
+    private void validateMontoPagoPendiente(Long id, double totalNuevoPago, double totalVenta) {
         Double totalPagadoPrevio = ventaRepository.sumPagosActivosByVentaId(id);
         Double chequesPendientes = alertaChequeRepository.sumMontoPendienteByVentaId(id);
-        double saldoRestante = Math.round((pendingSale.getTotalVenta() - totalPagadoPrevio - chequesPendientes) * 100.0) / 100.0;
+        double saldoRestante = Math.round((totalVenta - totalPagadoPrevio - chequesPendientes) * 100.0) / 100.0;
         double totalNuevoPagoRounded = Math.round(totalNuevoPago * 100.0) / 100.0;
 
         if (totalNuevoPagoRounded > saldoRestante + PAYMENT_COMPLETE_EPSILON) {
             throw new BusinessRuleException(Constants.ERR_PENDING_PAYMENT_EXCEEDS_BALANCE);
         }
+    }
 
+    private void processPagoPendienteRecords(Long id, List<PagoDeudaRequest> pagos, Venta pendingSale, Long usuarioId) {
+        MetodoPago saldoMethod = metodoPagoRepository.findByAcronimo(SALDO_ACRONIMO).orElse(null);
+        Long saldoId = saldoMethod != null ? saldoMethod.getId() : null;
         for (PagoDeudaRequest pago : pagos) {
             if (pago.getMontoPago() != null && pago.getMontoPago() > 0) {
-                if (pago.getFechaCobro() != null) {
-                    // Es un cheque pendiente, no un pago real de contado
-                    AlertaCheque cheque = new AlertaCheque(null, id, pago.getMontoPago(), pago.getFechaCobro(), PENDIENTE, null, null);
-                    alertaChequeRepository.save(cheque);
-                } else {
-                    ventaRepository.savePagoUnico(id, pago.getMetodoPagoId(), pago.getMontoPago(), usuarioId);
-                }
+                processSinglePagoPendienteRecord(id, pago, pendingSale, saldoId, usuarioId);
             }
         }
-        auditoriaService.registrarAccion(usuarioId, "PAGO_PENDIENTE", String.format("Registrado pago/cheque de $%.2f en Pedido ID %d.", totalNuevoPago, id));
+    }
+
+    private void processSinglePagoPendienteRecord(Long id, PagoDeudaRequest pago, Venta pendingSale, Long saldoId, Long usuarioId) {
+        if (pago.getFechaCobro() != null) {
+            AlertaCheque cheque = new AlertaCheque(null, id, pago.getMontoPago(), pago.getFechaCobro(), PENDIENTE, null, null);
+            alertaChequeRepository.save(cheque);
+        } else {
+            if (saldoId != null && saldoId.equals(pago.getMetodoPagoId())) {
+                if (pendingSale.getClienteId() == null) throw new BusinessRuleException("El pago con Saldo a Favor requiere un cliente seleccionado.");
+                int rows = clienteRepository.deductSaldo(pendingSale.getClienteId(), pago.getMontoPago());
+                if (rows == 0) throw new BusinessRuleException("Saldo a favor insuficiente para el cliente.");
+            }
+            ventaRepository.savePagoUnico(id, pago.getMetodoPagoId(), pago.getMontoPago(), usuarioId);
+        }
     }
 
     @Transactional
@@ -391,9 +449,9 @@ public class VentaService {
         // Return old stock
         List<DetalleVenta> oldDetails = ventaRepository.findDetallesByVentaId(id);
         if (!oldDetails.isEmpty()) {
-            List<StockLocation> allLocations = stockRepository.findByProductId(oldDetails.getFirst().getProductoId());
-            Long primaryLocId = allLocations.isEmpty() ? 1L : allLocations.getFirst().getUbicacionId();
             for (DetalleVenta d : oldDetails) {
+                List<StockLocation> allLocations = stockRepository.findByProductId(d.getProductoId());
+                Long primaryLocId = allLocations.isEmpty() ? 1L : allLocations.getFirst().getUbicacionId();
                 stockRepository.addStock(d.getProductoId(), primaryLocId, d.getCantidad());
             }
         }
@@ -414,6 +472,7 @@ public class VentaService {
                 id,
                 pendingSale.getFecha(),
                 request.getClienteNombre(),
+                pendingSale.getClienteId(),
                 ventaRepository.findVendedorNombre(pendingSale.getUsuarioId()),
                 finalTotal,
                 descuentoGlobal,
@@ -432,6 +491,23 @@ public class VentaService {
         if (!PENDIENTE.equals(pendingSale.getEstado())) throw new BusinessRuleException("Solo se pueden anular pagos de pedidos en estado PENDIENTE.");
 
         Double monto = ventaRepository.getMontoPagoActivo(pagoId, pendingId);
+        PagoVenta pago = ventaRepository.findPagosByVentaId(pendingId).stream()
+                .filter(p -> p.getId().equals(pagoId) && !Boolean.TRUE.equals(p.getAnulado()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessRuleException("El pago no existe, no pertenece a este pedido o ya está anulado."));
+
+        // SALDO annulment safety: restore the client's credit balance if the payment
+        // was made using the 'Saldo a Favor' method, to prevent permanent fund loss.
+        metodoPagoRepository.findById(pago.getMetodoPagoId())
+                .filter(mp -> SALDO_ACRONIMO.equals(mp.getAcronimo()))
+                .ifPresent(mp -> {
+                    // The venta must have a linked client to restore the saldo.
+                    // If clienteId is null (legacy sale), we log and skip rather than crash.
+                    if (pendingSale.getClienteId() != null) {
+                        clienteRepository.addSaldo(pendingSale.getClienteId(), Math.abs(monto));
+                    }
+                });
+
         ventaRepository.updatePagoAnulado(pagoId);
         auditoriaService.registrarAccion(usuarioId, "ANULAR_PAGO_PENDIENTE", "Pago ID: " + pagoId + " del Pedido ID: " + pendingId + " por $" + monto + " anulado.");
     }
@@ -478,7 +554,7 @@ public class VentaService {
         double saldoPendiente = Math.round((totalEstimado - totalPagado) * 100.0) / 100.0;
 
         if (saldoPendiente > PAYMENT_COMPLETE_EPSILON) {
-            deudoresRepository.save(id, pendingSale.getClienteNombre(), saldoPendiente);
+            deudoresRepository.save(id, pendingSale.getClienteNombre(), pendingSale.getClienteId(), saldoPendiente);
         }
 
         auditoriaService.registrarAccion(authenticatedUserId, "FINALIZAR_PENDIENTE", String.format("Pedido %d finalizado. Pagado: $%.2f. Deuda: $%.2f.", id, totalPagado, saldoPendiente));
@@ -488,6 +564,7 @@ public class VentaService {
                 id,
                 nuevaFecha,
                 pendingSale.getClienteNombre(),
+                pendingSale.getClienteId(),
                 vendedorNombre,
                 pendingSale.getTotalVenta(),
                 pendingSale.getDescuentoGlobal(),
@@ -514,6 +591,23 @@ public class VentaService {
         private List<PagoVenta> pagosPersistidos;
     }
 
+    // --- READ OPERATIONS ---
+
+    public List<VentaResponse> getVentasByClienteId(Long clienteId) {
+        List<Venta> ventas = ventaRepository.findVentasByClienteId(clienteId);
+        List<VentaResponse> responses = new java.util.ArrayList<>();
+        for (Venta venta : ventas) {
+            String vendedorNombre = ventaRepository.findVendedorNombre(venta.getUsuarioId());
+            responses.add(new VentaResponse(
+                    venta.getId(), venta.getFecha(), venta.getClienteNombre(),
+                    venta.getClienteId(), vendedorNombre, venta.getTotalVenta(), venta.getDescuentoGlobal(),
+                    venta.getTipoVenta(), null, null, null, venta.getEstado(),
+                    venta.getCostoTotal() != null ? venta.getCostoTotal() : 0.0
+            ));
+        }
+        return responses;
+    }
+
     // --- HELPER METHODS ---
     private void validateRequest(VentaRequest request) {
         if (request.getItems() == null || request.getItems().isEmpty()) {
@@ -527,7 +621,7 @@ public class VentaService {
         Double totalAcumulado = 0.0;
 
         for (VentaRequest.ItemRequest itemReq : itemsReq) {
-            Product producto = productRepository.findById(itemReq.getProductoId()).orElseThrow(() -> new ResourceNotFoundException("Producto", itemReq.getProductoId()));
+            Product producto = productRepository.findByIdIncludingInactive(itemReq.getProductoId()).orElseThrow(() -> new ResourceNotFoundException("Producto", itemReq.getProductoId()));
             if (!producto.isActivo()) throw new BusinessRuleException("El producto '" + producto.getDescripcion() + "' está eliminado y no puede ser incluido.");
 
             DetalleVenta detalle = createDetalleVenta(producto, itemReq, tipoVenta);
@@ -583,37 +677,56 @@ public class VentaService {
 
     private PersistedTransactionInfo saveTransactionData(VentaRequest request, ProcessedSaleResult processedData) {
         PersistedTransactionInfo info = new PersistedTransactionInfo();
+        Long ventaId = persistVentaBase(request, processedData);
+        info.setVentaId(ventaId);
+
+        persistDetalles(ventaId, processedData.getDetalles());
+        List<PagoVenta> pagosPersistidos = processPagosVenta(ventaId, request.getPagos(), request.getClienteId(), request.getUsuarioId());
+        info.setPagosPersistidos(pagosPersistidos);
+
+        return info;
+    }
+
+    private Long persistVentaBase(VentaRequest request, ProcessedSaleResult processedData) {
         Venta venta = new Venta();
         LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         venta.setFecha(now);
         venta.setFechaCreacion(now);
         venta.setClienteNombre(request.getClienteNombre());
+        venta.setClienteId(request.getClienteId());
         venta.setTotalVenta(processedData.getTotalVenta());
         venta.setDescuentoGlobal(processedData.getDescuentoGlobal());
         venta.setTipoVenta(request.getTipoVenta() != null ? request.getTipoVenta().name() : MINORISTA);
         venta.setUsuarioId(request.getUsuarioId());
         venta.setEstado(ACTIVA);
+        return ventaRepository.saveVenta(venta);
+    }
 
-        Long ventaId = ventaRepository.saveVenta(venta);
-        info.setVentaId(ventaId);
-
-        processedData.getDetalles().forEach(d -> {
+    private void persistDetalles(Long ventaId, List<DetalleVenta> detalles) {
+        detalles.forEach(d -> {
             d.setVentaId(ventaId);
             d.setAnulado(false);
         });
-        ventaRepository.saveDetalles(processedData.getDetalles());
+        ventaRepository.saveDetalles(detalles);
+    }
 
-        if (request.getPagos() != null && !request.getPagos().isEmpty()) {
-            List<PagoVenta> pagosEntities = new ArrayList<>();
-            for (VentaRequest.PagoRequest p : request.getPagos()) {
-                pagosEntities.add(new PagoVenta(null, ventaId, p.getMetodoPagoId(), p.getMonto(), null, false, request.getUsuarioId()));
-            }
-            ventaRepository.savePagos(pagosEntities);
-            info.setPagosPersistidos(pagosEntities);
-        } else {
-            info.setPagosPersistidos(Collections.emptyList());
+    private List<PagoVenta> processPagosVenta(Long ventaId, List<VentaRequest.PagoRequest> pagos, Long clienteId, Long usuarioId) {
+        if (pagos == null || pagos.isEmpty()) {
+            return Collections.emptyList();
         }
-        return info;
+        MetodoPago saldoMethod = metodoPagoRepository.findByAcronimo(SALDO_ACRONIMO).orElse(null);
+        Long saldoId = saldoMethod != null ? saldoMethod.getId() : null;
+        List<PagoVenta> pagosEntities = new ArrayList<>();
+        for (VentaRequest.PagoRequest p : pagos) {
+            if (saldoId != null && saldoId.equals(p.getMetodoPagoId())) {
+                if (clienteId == null) throw new BusinessRuleException("El pago con Saldo a Favor requiere un cliente seleccionado.");
+                int rows = clienteRepository.deductSaldo(clienteId, p.getMonto());
+                if (rows == 0) throw new BusinessRuleException("Saldo a favor insuficiente para el cliente.");
+            }
+            pagosEntities.add(new PagoVenta(null, ventaId, p.getMetodoPagoId(), p.getMonto(), null, false, usuarioId));
+        }
+        ventaRepository.savePagos(pagosEntities);
+        return pagosEntities;
     }
 
     List<String> updateStockFromDetails(List<DetalleVenta> detalles) {
@@ -657,12 +770,12 @@ public class VentaService {
         return null;
     }
 
-    private void handleDebt(Long ventaId, String clienteNombre, Double totalVenta, List<PagoVenta> pagosPersistidos) {
+    private void handleDebt(Long ventaId, String clienteNombre, Long clienteId, Double totalVenta, List<PagoVenta> pagosPersistidos) {
         Double totalPagado = pagosPersistidos.stream().mapToDouble(PagoVenta::getMonto).sum();
         Double deuda = totalVenta - totalPagado;
         if (deuda > PAYMENT_COMPLETE_EPSILON) {
             if (clienteNombre == null || clienteNombre.isBlank()) throw new BusinessRuleException("Para dejar una deuda (Fiado), se requiere el nombre del cliente.");
-            deudoresRepository.save(ventaId, clienteNombre, Math.round(deuda * 100.0) / 100.0);
+            deudoresRepository.save(ventaId, clienteNombre, clienteId, Math.round(deuda * 100.0) / 100.0);
         }
     }
 
@@ -670,6 +783,7 @@ public class VentaService {
     public void anularVentaHistorica(Long ventaId) {
         Venta venta = ventaRepository.findById(ventaId).orElseThrow(() -> new ResourceNotFoundException("Venta", ventaId));
         if (ANULADA.equals(venta.getEstado())) throw new BusinessRuleException("La venta ya se encuentra anulada.");
+        if (!ACTIVA.equals(venta.getEstado())) throw new BusinessRuleException("Solo se pueden anular ventas con estado ACTIVA.");
 
         ventaRepository.updateEstado(ventaId, ANULADA);
 
@@ -679,7 +793,11 @@ public class VentaService {
             if (allLocations.isEmpty()) throw new BusinessRuleException("No hay ubicaciones configuradas para retornar el stock.");
             Long primaryLocationId = allLocations.getFirst().getId();
             for (DetalleVenta detalle : detalles) {
-                stockRepository.addStock(detalle.getProductoId(), primaryLocationId, detalle.getCantidad());
+                Long yaDevuelta = devolucionesRepository.sumCantidadDevueltaByDetalleId(detalle.getId());
+                Long netToReturn = detalle.getCantidad() - (yaDevuelta != null ? yaDevuelta : 0L);
+                if (netToReturn > 0) {
+                    stockRepository.addStock(detalle.getProductoId(), primaryLocationId, netToReturn);
+                }
             }
         }
 
@@ -691,5 +809,156 @@ public class VentaService {
 
         Long currentUserId = com.centralizesys.security.SecurityUtils.getAuthenticatedUserId();
         auditoriaService.registrarAccion(currentUserId, "ANULAR_VENTA", "Se anuló la venta ID " + ventaId + " y se retornó el stock a la ubicación principal.");
+    }
+
+    // =========================================================================
+    // PARTIAL RETURN (Devolución Parcial)
+    // =========================================================================
+
+    /**
+     * Registers the partial (or full) return of one or more products from an ACTIVA sale.
+     * <p>
+     * Invariants enforced:
+     * <ul>
+     *   <li>The sale must be ACTIVA.</li>
+     *   <li>Each returned line item must belong to this sale.</li>
+     *   <li>The return quantity cannot exceed the net remaining quantity
+     *       (original - already returned).</li>
+     *   <li>If the sale has an active debt, the refund type is forced to SALDO.</li>
+     *   <li>If all net quantities reach 0, the sale is fully annulled.</li>
+     * </ul>
+     * <p>
+     * The original {@code detalles_venta} rows are NEVER mutated (immutable ledger).
+     */
+    @Transactional
+    public void registrarDevolucionParcial(Long ventaId, DevolucionRequest request, Long usuarioId) {
+        Venta venta = validateSaleForReturn(ventaId, request);
+
+        String tipoReembolso = request.getTipoReembolso() == null || request.getTipoReembolso().isBlank() ? "SALDO" : request.getTipoReembolso();
+        java.util.Optional<com.centralizesys.model.debt.DeudaResponse> deudaOpt = validateDebtForRefund(ventaId, tipoReembolso);
+
+        double totalReembolso = processReturnedItems(ventaId, request, usuarioId);
+
+        applyRefund(ventaId, venta, deudaOpt, totalReembolso, tipoReembolso, usuarioId);
+
+        auditoriaService.registrarAccion(usuarioId, "DEVOLUCION_PARCIAL", String.format("Devolución parcial en Venta ID %d. Reembolso: $%.2f vía %s.", ventaId, totalReembolso, tipoReembolso));
+        checkAndUpdateFinalSaleStatus(ventaId, usuarioId);
+    }
+
+    private Venta validateSaleForReturn(Long ventaId, DevolucionRequest request) {
+        Venta venta = ventaRepository.findById(ventaId).orElseThrow(() -> new ResourceNotFoundException("Venta", ventaId));
+        if (!ACTIVA.equals(venta.getEstado()) && !"DEVUELTA_PARCIAL".equals(venta.getEstado())) {
+            throw new BusinessRuleException("Solo se pueden registrar devoluciones en ventas con estado ACTIVA o DEVUELTA_PARCIAL.");
+        }
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            throw new BusinessRuleException("La devolución debe incluir al menos un producto.");
+        }
+        return venta;
+    }
+
+    private java.util.Optional<com.centralizesys.model.debt.DeudaResponse> validateDebtForRefund(Long ventaId, String tipoReembolso) {
+        java.util.Optional<com.centralizesys.model.debt.DeudaResponse> deudaOpt = deudoresRepository.findByVentaId(ventaId)
+                .filter(d -> "PENDIENTE".equals(d.getEstado()) || "PARCIAL".equals(d.getEstado()));
+        if (deudaOpt.isPresent() && "EFECTIVO".equals(tipoReembolso)) {
+            throw new BusinessRuleException("No se puede hacer una devolución en efectivo cuando la venta tiene una deuda activa. Use 'Saldo a Favor'.");
+        }
+        return deudaOpt;
+    }
+
+    private double processReturnedItems(Long ventaId, DevolucionRequest request, Long usuarioId) {
+        double totalReembolso = 0.0;
+        List<com.centralizesys.model.product.Location> allLocations = stockRepository.findAllLocations();
+        if (allLocations.isEmpty()) throw new BusinessRuleException("No hay ubicaciones configuradas para retornar el stock.");
+        Long primaryLocationId = allLocations.getFirst().getId();
+
+        Venta venta = ventaRepository.findById(ventaId).orElseThrow();
+        Double descuentoGlobal = venta.getDescuentoGlobal() != null ? venta.getDescuentoGlobal() : 0.0;
+        double subtotalVenta = venta.getTotalVenta() + descuentoGlobal;
+        double discountProportion = (subtotalVenta > 0 && descuentoGlobal > 0) ? descuentoGlobal / subtotalVenta : 0.0;
+
+        for (DevolucionRequest.DevolucionItemRequest item : request.getItems()) {
+            totalReembolso += validateAndProcessSingleReturnedItem(ventaId, item, primaryLocationId, discountProportion, request, usuarioId);
+        }
+        return Math.round(totalReembolso * 100.0) / 100.0;
+    }
+
+    private double validateAndProcessSingleReturnedItem(Long ventaId, DevolucionRequest.DevolucionItemRequest item, Long primaryLocationId, double discountProportion, DevolucionRequest request, Long usuarioId) {
+        DetalleVenta detalle = ventaRepository.findDetalleById(item.getDetalleVentaId())
+                .orElseThrow(() -> new ResourceNotFoundException("DetalleVenta", item.getDetalleVentaId()));
+
+        if (!ventaId.equals(detalle.getVentaId())) throw new BusinessRuleException("El detalle ID " + item.getDetalleVentaId() + " no pertenece a la venta " + ventaId + ".");
+        if (Boolean.TRUE.equals(detalle.getAnulado())) throw new BusinessRuleException("El detalle ID " + item.getDetalleVentaId() + " ya fue anulado.");
+        if (item.getCantidadDevuelta() == null || item.getCantidadDevuelta() <= 0) throw new BusinessRuleException("La cantidad a devolver debe ser mayor a 0.");
+
+        Long yaDevuelta = devolucionesRepository.sumCantidadDevueltaByDetalleId(item.getDetalleVentaId());
+        Long netRestante = detalle.getCantidad() - (yaDevuelta != null ? yaDevuelta : 0L);
+        if (item.getCantidadDevuelta() > netRestante) {
+            throw new BusinessRuleException(String.format("Solo quedan %d unidades devolvibles del producto '%s'.", netRestante, detalle.getDescripcionSnapshot()));
+        }
+
+        double montoItemBruto = Math.round((detalle.getPrecioUnitario() * item.getCantidadDevuelta()) * 100.0) / 100.0;
+        double deductDiscount = Math.round((montoItemBruto * discountProportion) * 100.0) / 100.0;
+        double montoItemNeto = Math.round((montoItemBruto - deductDiscount) * 100.0) / 100.0;
+
+        devolucionesRepository.save(ventaId, item.getDetalleVentaId(), item.getCantidadDevuelta(), montoItemNeto, request.getTipoReembolso() != null ? request.getTipoReembolso() : "SALDO", request.getObservaciones(), usuarioId);
+        stockRepository.addStock(detalle.getProductoId(), primaryLocationId, item.getCantidadDevuelta());
+
+        return montoItemNeto;
+    }
+
+
+    private void applyRefund(Long ventaId, Venta venta, java.util.Optional<com.centralizesys.model.debt.DeudaResponse> deudaOpt, double totalReembolso, String tipoReembolso, Long usuarioId) {
+        double remainingReembolso = totalReembolso;
+
+        if (deudaOpt.isPresent()) {
+            com.centralizesys.model.debt.DeudaResponse deuda = deudaOpt.get();
+            double appliedToDebt = Math.min(deuda.getMontoDeuda(), remainingReembolso);
+
+            double newDebt = Math.round((deuda.getMontoDeuda() - appliedToDebt) * 100.0) / 100.0;
+            String newEstado = newDebt <= PAYMENT_COMPLETE_EPSILON ? "PAGADO" : "PARCIAL";
+
+            int rowsAffected = deudoresRepository.deductDeudaAtomic(deuda.getId(), appliedToDebt, newEstado);
+            if (rowsAffected == 0) throw new BusinessRuleException("Error de concurrencia al actualizar la deuda. Posible intento de deducción excesivo.");
+
+            MetodoPago efectivoDummy = metodoPagoRepository.findByAcronimo("E").orElse(null);
+            Long metodoId = efectivoDummy != null ? efectivoDummy.getId() : 1L;
+            deudoresRepository.insertarPagoDeuda(deuda.getId(), metodoId, appliedToDebt, "Abonado automáticamente por devolución de productos", usuarioId);
+
+            remainingReembolso = Math.round((remainingReembolso - appliedToDebt) * 100.0) / 100.0;
+        }
+
+        if (remainingReembolso > 0.0) {
+            if ("SALDO".equals(tipoReembolso)) {
+                if (venta.getClienteId() == null) throw new BusinessRuleException("No se puede reembolsar a Saldo a Favor porque la venta no tiene un cliente asociado.");
+                clienteRepository.addSaldo(venta.getClienteId(), remainingReembolso);
+            } else if ("EFECTIVO".equals(tipoReembolso)) {
+                MetodoPago efectivo = metodoPagoRepository.findByAcronimo("E").orElseThrow(() -> new BusinessRuleException("Método de pago 'Efectivo' no encontrado en el sistema."));
+                ventaRepository.saveNegativoPago(ventaId, efectivo.getId(), remainingReembolso, usuarioId);
+            } else {
+                throw new BusinessRuleException("Tipo de reembolso no válido: " + tipoReembolso);
+            }
+        }
+    }
+
+    private void checkAndUpdateFinalSaleStatus(Long ventaId, Long usuarioId) {
+        List<DetalleVenta> existingDetalles = ventaRepository.findDetallesByVentaId(ventaId);
+        boolean allReturned = true;
+        for (DetalleVenta d : existingDetalles) {
+            Long devueltaAcum = devolucionesRepository.sumCantidadDevueltaByDetalleId(d.getId());
+            if (devueltaAcum == null) devueltaAcum = 0L;
+            if (devueltaAcum < d.getCantidad()) {
+                allReturned = false;
+                break;
+            }
+        }
+
+        if (allReturned) {
+            ventaRepository.updateEstado(ventaId, ANULADA);
+            alertaChequeRepository.updateEstadoByVentaId(ventaId, ANULADA);
+            auditoriaService.registrarAccion(usuarioId, "ANULAR_VENTA", "Venta " + ventaId + " anulada por devolución total.");
+        } else {
+            ventaRepository.updateEstado(ventaId, "DEVUELTA_PARCIAL");
+            auditoriaService.registrarAccion(usuarioId, "DEVOLUCION_PARCIAL", "Devolución parcial registrada en venta " + ventaId);
+        }
     }
 }

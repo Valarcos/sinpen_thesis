@@ -29,18 +29,22 @@ public class ReportRepository {
         String sql = """
             WITH DetallesAgrupados AS (
                 SELECT
-                    venta_id,
-                    COALESCE(SUM(costo_snapshot * cantidad), 0.0) as cogs_venta
-                FROM detalles_venta
-                WHERE anulado = false OR anulado IS NULL
-                GROUP BY venta_id
+                    d.venta_id,
+                    COALESCE(SUM(d.costo_snapshot * (d.cantidad - COALESCE(
+                        (SELECT SUM(cantidad_devuelta) FROM devoluciones_venta WHERE detalle_venta_id = d.id), 0
+                    ))), 0.0) as cogs_venta
+                FROM detalles_venta d
+                WHERE d.anulado = false OR d.anulado IS NULL
+                GROUP BY d.venta_id
             )
             SELECT
                 DATE_TRUNC('month', v.fecha) as mes,
-                SUM(v.total_venta) as ingresos_totales,
+                SUM(v.total_venta) - COALESCE(SUM((
+                     SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id
+                )), 0.0) as ingresos_totales,
                 SUM(d.cogs_venta) as cogs,
-                (SUM(v.total_venta) - SUM(d.cogs_venta)) as ganancia_neta,
-                ((SUM(v.total_venta) - SUM(d.cogs_venta)) / NULLIF(SUM(v.total_venta), 0)) * 100 as margen_porcentaje
+                (SUM(v.total_venta) - COALESCE(SUM((SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id)), 0.0) - SUM(d.cogs_venta)) as ganancia_neta,
+                ((SUM(v.total_venta) - COALESCE(SUM((SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id)), 0.0) - SUM(d.cogs_venta)) / NULLIF(SUM(v.total_venta) - COALESCE(SUM((SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id)), 0.0), 0)) * 100 as margen_porcentaje
             FROM ventas v
             LEFT JOIN DetallesAgrupados d ON v.id = d.venta_id
             WHERE v.estado NOT IN ('ANULADA', 'PENDIENTE', 'CANCELADA_PENDIENTE')
@@ -57,17 +61,21 @@ public class ReportRepository {
         String sql = """
             WITH DetallesAgrupados AS (
                 SELECT
-                    venta_id,
-                    COALESCE(SUM(costo_snapshot * cantidad), 0.0) as cogs_venta
-                FROM detalles_venta
-                WHERE anulado = false OR anulado IS NULL
-                GROUP BY venta_id
+                    d.venta_id,
+                    COALESCE(SUM(d.costo_snapshot * (d.cantidad - COALESCE(
+                        (SELECT SUM(cantidad_devuelta) FROM devoluciones_venta WHERE detalle_venta_id = d.id), 0
+                    ))), 0.0) as cogs_venta
+                FROM detalles_venta d
+                WHERE d.anulado = false OR d.anulado IS NULL
+                GROUP BY d.venta_id
             )
             SELECT
-                SUM(v.total_venta) as ingresos_totales,
+                SUM(v.total_venta) - COALESCE(SUM((
+                     SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id
+                )), 0.0) as ingresos_totales,
                 SUM(d.cogs_venta) as cogs,
-                (SUM(v.total_venta) - SUM(d.cogs_venta)) as ganancia_neta,
-                ((SUM(v.total_venta) - SUM(d.cogs_venta)) / NULLIF(SUM(v.total_venta), 0)) * 100 as margen_porcentaje
+                (SUM(v.total_venta) - COALESCE(SUM((SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id)), 0.0) - SUM(d.cogs_venta)) as ganancia_neta,
+                ((SUM(v.total_venta) - COALESCE(SUM((SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id)), 0.0) - SUM(d.cogs_venta)) / NULLIF(SUM(v.total_venta) - COALESCE(SUM((SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id)), 0.0), 0)) * 100 as margen_porcentaje
             FROM ventas v
             LEFT JOIN DetallesAgrupados d ON v.id = d.venta_id
             WHERE v.estado NOT IN ('ANULADA', 'PENDIENTE', 'CANCELADA_PENDIENTE')
@@ -138,15 +146,21 @@ public class ReportRepository {
         String revenueSql = """
             WITH DetallesAgrupados AS (
                 SELECT
-                    venta_id,
-                    COALESCE(SUM(costo_snapshot * cantidad), 0.0) AS cogs_venta,
-                    COALESCE(SUM(cantidad), 0) AS qty_vendida
-                FROM detalles_venta
-                WHERE anulado = false OR anulado IS NULL
-                GROUP BY venta_id
+                    d.venta_id,
+                    COALESCE(SUM(d.costo_snapshot * (d.cantidad - COALESCE(
+                        (SELECT SUM(cantidad_devuelta) FROM devoluciones_venta WHERE detalle_venta_id = d.id), 0
+                    ))), 0.0) as cogs_venta,
+                    COALESCE(SUM(d.cantidad - COALESCE(
+                        (SELECT SUM(cantidad_devuelta) FROM devoluciones_venta WHERE detalle_venta_id = d.id), 0
+                    )), 0) as qty_vendida
+                FROM detalles_venta d
+                WHERE d.anulado = false OR d.anulado IS NULL
+                GROUP BY d.venta_id
             )
             SELECT
-                COALESCE(SUM(v.total_venta), 0.0)        AS ingresos_ventas,
+                COALESCE(SUM(v.total_venta), 0.0) - COALESCE(SUM((
+                     SELECT SUM(dv.monto_reembolsado) FROM devoluciones_venta dv WHERE dv.venta_id = v.id
+                )), 0.0) AS ingresos_ventas,
                 COALESCE(SUM(d.cogs_venta), 0.0) AS costo_total_vendido,
                 COALESCE(SUM(d.qty_vendida), 0)              AS productos_vendidos
             FROM ventas v

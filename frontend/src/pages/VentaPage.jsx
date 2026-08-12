@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useOutletContext, useBlocker, useLocation, useNavigate } from 'react-router-dom';
 import useCart from '../hooks/useCart';
 import api from '../services/api';
@@ -64,7 +64,6 @@ export default function VentaPage() {
         addToCart,
         updateQuantity,
         updateProductData, // Adding just in case existing code relies on it
-        updateMultipleProductsData,
         updateItemDiscount, // New
         updateItemSubItems, // New
         globalDiscount, // New
@@ -111,15 +110,17 @@ export default function VentaPage() {
     const [paymentMethods, setPaymentMethods] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [cartSearchQuery, setCartSearchQuery] = useState(''); // New state for cart search
     const { salesActiveTab: activeTab } = useOutletContext();
     const [loading, setLoading] = useState(false);
     const [availableClients, setAvailableClients] = useState([]); // New Autocomplete State
 
-    // Fetch Clients for Autocomplete
+    // Fetch Clients for Autocomplete — uses full ClienteResponse objects so we can
+    // read saldo_a_favor for the payment method conditional logic.
     useEffect(() => {
         const fetchClients = async () => {
             try {
-                const res = await api.get('/ventas/clientes');
+                const res = await api.get('/clientes');
                 setAvailableClients(res.data);
             } catch (err) {
                 console.error("Error loading clients", err);
@@ -142,6 +143,8 @@ export default function VentaPage() {
     // Stock Warning State
     const [affectedProducts, setAffectedProducts] = useState([]);
     const [showStockModal, setShowStockModal] = useState(false);
+    // Tracks the action that triggered the stock modal so onContinue routes correctly
+    const [pendingAction, setPendingAction] = useState(null); // 'FINALIZE' | 'SAVE_PENDING' | null
 
     // Debt Warning State
     const [showDebtModal, setShowDebtModal] = useState(false);
@@ -217,16 +220,39 @@ export default function VentaPage() {
     const checkStockAvailability = () => {
         const issues = [];
         cartItems.forEach(item => {
-            if (item.quantity > item.product.cantidadStock) {
-                issues.push({ ...item.product, cartQuantity: item.quantity });
+            const originalReserved = item.originalReservedQuantity || 0;
+            const availableStock = item.product.cantidadStock + originalReserved;
+
+            if (item.quantity > availableStock) {
+                issues.push({ ...item.product, cantidadStock: availableStock, cartQuantity: item.quantity });
             }
         });
         return issues;
     };
 
     const handlePrePaymentCheck = () => {
+        // Sync any un-blurred inputs BEFORE checking stock!
+        let hasPendingSync = false;
+        Object.keys(localQtyValues).forEach(id => {
+            const raw = localQtyValues[id];
+            if (raw !== undefined) {
+                const val = parseInt(raw, 10);
+                if (!isNaN(val) && val >= 1) {
+                    updateQuantity(Number(id), val);
+                    hasPendingSync = true;
+                }
+            }
+        });
+
+        if (hasPendingSync) {
+            setLocalQtyValues({}); // Clear the buffer
+            setTimeout(() => handlePrePaymentCheck(), 0); // Retry after React state propagates
+            return;
+        }
+
         const issues = checkStockAvailability();
         if (issues.length > 0) {
+            setPendingAction('FINALIZE'); // Stamp intent before showing modal
             setAffectedProducts(issues);
             setShowStockModal(true);
         } else {
@@ -245,45 +271,50 @@ export default function VentaPage() {
         }
     };
 
-    const handleStockCorrected = async () => {
+    /**
+     * Handles a stock correction from StockWarningModal.
+     * Fetches only the single corrected product (targeted GET) to avoid:
+     *   1. Pagination misses if the product is on page 2+.
+     *   2. Overwriting the catalog grid state (setProducts) with a single item.
+     *
+     * @param {number} productId - The ID of the product that was just corrected.
+     */
+    const handleStockCorrected = async (productId) => {
         try {
-            // Re-fetch all products
-            // Issue #14 Fix: Correct endpoint is /api/productos, which returns a paginated response
-            const res = await api.get('/productos');
-            const productsList = res.data.content || [];
-            if (productsList.length > 0) {
-                const groupedList = groupProducts(productsList);
-                setProducts(groupedList);
-                updateMultipleProductsData(productsList);
+            // Targeted fetch: only the corrected product. Does NOT touch setProducts()
+            // so the user's catalog search results remain intact.
+            const res = await api.get(`/productos/${productId}`);
+            const freshProduct = res.data;
+
+            if (freshProduct) {
+                // Update only this one product in the cart state
+                updateProductData(freshProduct);
             }
 
+            // Re-evaluate which items still have stock issues using updated cart data
+            // We must compute this from the current cartItems + the fresh product data
             const updatedIssues = [];
-            // We use the current cartItems array to figure out which ones still have issues,
-            // but we compare against the FRESH productsList data we just got from the DB.
             cartItems.forEach(item => {
-                const refreshedProduct = productsList.find(p => p.id === item.product.id);
-                if (refreshedProduct) {
-                    if (item.quantity > refreshedProduct.cantidadStock) {
-                        updatedIssues.push({ ...refreshedProduct, cartQuantity: item.quantity });
-                    }
-                } else if (item.quantity > item.product.cantidadStock) {
-                    // Fallback if product not found in the fresh list for some reason
-                    updatedIssues.push({ ...item.product, cartQuantity: item.quantity });
+                const originalReserved = item.originalReservedQuantity || 0;
+                // Use freshProduct for the corrected one, otherwise use existing cart data
+                const stockSource = item.product.id === productId ? freshProduct : item.product;
+                if (!stockSource) return;
+                const availableStock = stockSource.cantidadStock + originalReserved;
+                if (item.quantity > availableStock) {
+                    updatedIssues.push({ ...stockSource, cantidadStock: availableStock, cartQuantity: item.quantity });
                 }
             });
 
-            // Update all cart items in a single batch so React doesn't drop any states
-            updateMultipleProductsData(productsList);
-
-            // Update the affected products list for the modal
             setAffectedProducts(updatedIssues);
 
             if (updatedIssues.length === 0) {
-                // Issue 2: Auto-close both nested and root modal if 0 issues remain
+                // Auto-close modal if all issues are resolved — user must then re-click their action button
                 setShowStockModal(false);
+                setPendingAction(null); // Clear intent — user will re-confirm their action
             }
         } catch (error) {
-            console.error("Error refreshing after stock correction", error);
+            console.error('Error refreshing after stock correction', error);
+            toast.error('Error al verificar el stock corregido');
         }
     };
 
@@ -321,6 +352,7 @@ export default function VentaPage() {
 
             const saleData = {
                 clienteNombre: clientName,
+                clienteId: selectedClientObj?.id || null,
                 tipoVenta: saleType,
                 descuentoGlobal: globalDiscount,
                 items: cartItems.flatMap(item => {
@@ -407,26 +439,13 @@ export default function VentaPage() {
         }
     };
 
-    const handleSaveAsPending = async () => {
-        if (isSubmitting) return;
-
-        if (!cartItems || cartItems.length === 0) {
-            toast.error("El carrito está vacío");
-            return;
-        }
-
-        if (!clientName.trim()) {
-            toast.error("Debe ingresar el Nombre del Cliente para guardar como pendiente");
-            return;
-        }
-
-        const issues = checkStockAvailability();
-        if (issues.length > 0) {
-            setAffectedProducts(issues);
-            setShowStockModal(true);
-            return;
-        }
-
+    /**
+     * Executes the actual pending-sale API call after all pre-checks pass.
+     * Defined as a separate function so it can be called BOTH from handleSaveAsPending
+     * (direct path) AND from the StockWarningModal's onContinue callback (via pendingAction='SAVE_PENDING').
+     * Kept inside VentaPage to maintain closure over fresh React state.
+     */
+    const executeSaveAsPending = async () => {
         try {
             setIsSubmitting(true);
             const pagosPayload = payments
@@ -439,6 +458,7 @@ export default function VentaPage() {
 
             const saleData = {
                 clienteNombre: clientName,
+                clienteId: selectedClientObj?.id || null,
                 tipoVenta: saleType,
                 descuentoGlobal: globalDiscount,
                 items: cartItems.flatMap(item => {
@@ -460,9 +480,8 @@ export default function VentaPage() {
                 cheques: chequesPayload.length > 0 ? chequesPayload : undefined
             };
 
-            let response;
             if (editingPendingId) {
-                response = await api.put(`/ventas/${editingPendingId}`, saleData);
+                await api.put(`/ventas/${editingPendingId}`, saleData);
                 // Also save new payments if any
                 const newPayments = payments.filter(p => !p.id);
                 if (newPayments.length > 0) {
@@ -478,23 +497,64 @@ export default function VentaPage() {
                     }
                 }
                 toast.success("Pedido pendiente actualizado exitosamente.");
-            } else {
-                response = await api.post('/ventas/pendientes', saleData);
-                toast.success("Pedido guardado como pendiente exitosamente.");
-            }
-            if (editingPendingId) {
                 isRedirectingRef.current = true;
                 navigate('/cobros-y-pedidos', { state: { highlightedSaleId: editingPendingId } });
-                return;
+            } else {
+                await api.post('/ventas/pendientes', saleData);
+                toast.success("Pedido guardado como pendiente exitosamente.");
+                handleNewSale();
             }
-            handleNewSale();
         } catch (error) {
             console.error("Pending Sale Error:", error);
             const msg = error.response?.data?.message || "Error al guardar el pedido";
             toast.error(msg);
         } finally {
             setIsSubmitting(false);
+            setPendingAction(null); // Always clear intent after execution
         }
+    };
+
+    const handleSaveAsPending = async () => {
+        if (isSubmitting) return;
+
+        if (!cartItems || cartItems.length === 0) {
+            toast.error("El carrito está vacío");
+            return;
+        }
+
+        if (!clientName.trim()) {
+            toast.error("Debe ingresar el Nombre del Cliente para guardar como pendiente");
+            return;
+        }
+
+        // Sync any un-blurred inputs BEFORE checking stock!
+        let hasPendingSync = false;
+        Object.keys(localQtyValues).forEach(id => {
+            const raw = localQtyValues[id];
+            if (raw !== undefined) {
+                const val = parseInt(raw, 10);
+                if (!isNaN(val) && val >= 1) {
+                    updateQuantity(Number(id), val);
+                    hasPendingSync = true;
+                }
+            }
+        });
+
+        if (hasPendingSync) {
+            setLocalQtyValues({}); // Clear the buffer
+            setTimeout(() => handleSaveAsPending(), 0); // Retry after React state propagates
+            return;
+        }
+
+        const issues = checkStockAvailability();
+        if (issues.length > 0) {
+            setPendingAction('SAVE_PENDING'); // Stamp intent before showing modal
+            setAffectedProducts(issues);
+            setShowStockModal(true);
+            return;
+        }
+
+        await executeSaveAsPending();
     };
 
     // New Handler for Reset
@@ -568,14 +628,13 @@ export default function VentaPage() {
     };
 
     const [pendingSaleType, setPendingSaleType] = useState(null);
-    const [pendingProductToAdd, setPendingProductToAdd] = useState(null); // New state for force add
 
     // Req: Global focus hijacking back to search bar
     // Placed here to avoid ReferenceError: Cannot access 'pendingProductToAdd' before initialization
     useEffect(() => {
         const handleGlobalClick = (e) => {
             // Do not hijack focus if any modal is open
-            if (showStockModal || showDebtModal || showOverpaidModal || pendingProductToAdd || pendingSaleType) {
+            if (showStockModal || showDebtModal || showOverpaidModal || pendingSaleType) {
                 return;
             }
 
@@ -604,33 +663,27 @@ export default function VentaPage() {
         return () => {
             document.removeEventListener('click', handleGlobalClick);
         };
-    }, [showStockModal, showDebtModal, showOverpaidModal, pendingProductToAdd, pendingSaleType]);
+    }, [showStockModal, showDebtModal, showOverpaidModal, pendingSaleType]);
 
-    // MODIFIED: Intercept Add to Cart
+    // MODIFIED: Simplified Add to Cart
     const handleAddToCart = (product) => {
         // Find existing quantity in cart
         const existingItem = cartItems.find(item => item.product.id === product.id);
         const currentQty = existingItem ? existingItem.quantity : 0;
+        const originalReserved = existingItem ? (existingItem.originalReservedQuantity || 0) : 0;
+        const availableStock = product.cantidadStock + originalReserved;
 
-        // Check against stock
-        if (currentQty + 1 > product.cantidadStock) {
-            setPendingProductToAdd(product);
-            return; // Stop here, wait for modal confirmation
+        // Check against stock. If it exceeds, just show a warning toast, but STILL ADD IT.
+        if (currentQty + 1 > availableStock) {
+            addToCart(product);
+            toast.success(`Agregado (Sin Stock): ${product.descripcion}`, { icon: '⚠️', duration: 2000, position: 'bottom-left' });
+        } else {
+            addToCart(product);
+            toast.success(`Agregado: ${product.descripcion}`, { duration: 1000, position: 'bottom-left' });
         }
-
-        addToCart(product);
-        toast.success(`Agregado: ${product.descripcion}`, { duration: 1000, position: 'bottom-left' });
 
         // Focus and select the search bar so the user can easily type the next item
         setTimeout(focusAndSelectSearch, 0);
-    };
-
-    const confirmForceAdd = () => {
-        if (pendingProductToAdd) {
-            addToCart(pendingProductToAdd);
-            toast.success(`Agregado (Sin Stock): ${pendingProductToAdd.descripcion}`, { icon: '⚠️', duration: 2000, position: 'bottom-left' });
-            setPendingProductToAdd(null);
-        }
     };
 
     const handleSaleTypeChange = (type) => {
@@ -744,14 +797,29 @@ export default function VentaPage() {
     const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
     const remaining = totals.total - totalPaid;
 
-    // Smart Dropdown: Filter out methods that are already used in the current payment stack
+    // Smart Dropdown: Filter out methods that are already used in the current payment stack.
+    // SALDO (Saldo a Favor) is additionally gated:
+    //   - Only available once a client name has been entered AND matched to a registered client.
+    //   - Only available when that client has saldo_a_favor > 0.
+    //   - A registered client is identified by finding a matching ClienteResponse by nombre.
+    const selectedClientObj = availableClients.find(
+        c => c.nombre?.trim().toLowerCase() === clientName?.trim().toLowerCase()
+    ) ?? null;
+    const clientHasSaldo = selectedClientObj != null && (selectedClientObj.saldoAFavor ?? 0) > 0;
+
     const availableMethods = paymentMethods.filter(m => {
-        const isCheque = (m.descripcion || '').toLowerCase().includes('cheque') || (m.descripcion || '').toLowerCase().includes('e-check') || (m.descripcion || '').toLowerCase().includes('echeck');
+        const desc  = (m.descripcion || '').toLowerCase();
+        const acronimo = (m.acronimo || '').toUpperCase();
+        const isCheque = desc.includes('cheque') || desc.includes('e-check') || desc.includes('echeck');
+        // Hide SALDO method entirely when no matching client with available balance
+        if (acronimo === 'SALDO' && !clientHasSaldo) return false;
         return isCheque || !payments.some(p => p.methodId === m.id);
     });
 
 
-    // Auto-fill amount logic: When selecting a method, autofill with remaining
+    // Auto-fill amount logic: When selecting a method, autofill with remaining.
+    // For SALDO, autofill with the lesser of (remaining) and (client saldo_a_favor)
+    // to prevent the cashier from accidentally entering more than the client has.
     const handleMethodSelect = (e) => {
         const methodId = e.target.value;
         setSelectedMethodId(methodId);
@@ -759,11 +827,21 @@ export default function VentaPage() {
         const method = paymentMethods.find(m => m.id === parseInt(methodId));
         if (method) {
             const desc = (method.descripcion || '').toLowerCase();
+            const acronimo = (method.acronimo || '').toUpperCase();
             const isCheque = desc.includes('cheque') || desc.includes('e-check');
 
             if (isCheque) {
                 setPendingChequeAmount(remaining > 0.01 ? remaining : 0);
                 setShowChequeModal(true);
+                return;
+            }
+
+            if (acronimo === 'SALDO' && selectedClientObj) {
+                // Cap at the lesser of: (amount still owed) and (client's available credit)
+                const clientSaldo = selectedClientObj.saldoAFavor ?? 0;
+                const saldoToUse = Math.min(remaining > 0.01 ? remaining : 0, clientSaldo);
+                setPaymentAmount(saldoToUse > 0 ? saldoToUse.toFixed(2) : '');
+                setTimeout(() => { paymentAmountRef.current?.focus(); paymentAmountRef.current?.select(); }, 0);
                 return;
             }
         }
@@ -794,6 +872,38 @@ export default function VentaPage() {
         // No local buffer entry means the cart holds the canonical value (always valid, >= 1)
         return false;
     });
+
+    const filteredCartItems = useMemo(() => {
+        if (!cartSearchQuery.trim()) return cartItems;
+
+        const query = cartSearchQuery.trim().toLowerCase();
+        const isNumericSearch = /^\d+$/.test(query);
+
+        const filtered = cartItems.filter(item => {
+            const code = item.product.codigo.toLowerCase();
+            if (isNumericSearch) {
+                return code.startsWith(query);
+            }
+            return code.includes(query) || item.product.descripcion.toLowerCase().includes(query);
+        });
+
+        // Sort logic: Exact matches at bottom, shorter matches near bottom, preserve original index for ties
+        filtered.sort((a, b) => {
+            const aExact = a.product.codigo.toLowerCase() === query;
+            const bExact = b.product.codigo.toLowerCase() === query;
+
+            if (aExact && !bExact) return 1;
+            if (!aExact && bExact) return -1;
+
+            if (a.product.codigo.length !== b.product.codigo.length) {
+                return b.product.codigo.length - a.product.codigo.length;
+            }
+
+            return cartItems.indexOf(a) - cartItems.indexOf(b);
+        });
+
+        return filtered;
+    }, [cartItems, cartSearchQuery]);
 
     // --- RENDER ---
     if (lastSale) {
@@ -877,6 +987,10 @@ export default function VentaPage() {
                                                 : `1|${single.descripcion.trim().toLowerCase()}`;
                                             setExpandedFamilyKey(prev => prev === key ? null : key);
                                         }
+                                    } else {
+                                        // No perfect match and not exactly one result.
+                                        // Highlight the text so the user or scanner can easily overwrite it with the next scan.
+                                        e.target.select();
                                     }
                                 } catch (error) {
                                     console.error("Error in instant search on Enter:", error);
@@ -955,6 +1069,26 @@ export default function VentaPage() {
                             Total Productos: {cartItems.reduce((sum, item) => sum + item.quantity, 0)}
                         </span>
                     </div>
+
+                    <div className="cart-search-container">
+                        <input
+                            type="text"
+                            className="cart-search-input"
+                            placeholder="🔍 Buscar en carrito..."
+                            value={cartSearchQuery}
+                            onChange={(e) => setCartSearchQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                    setCartSearchQuery('');
+                                    searchInputRef.current?.focus();
+                                } else if (e.key === 'Enter') {
+                                    e.target.select();
+                                }
+                            }}
+                            title="Presione ESC para volver a la búsqueda principal"
+                        />
+                    </div>
+
                     <div className="sale-type-toggle">
                         <button className={`toggle-btn ${saleType === 'MINORISTA' ? 'active' : ''}`} onClick={() => handleSaleTypeChange('MINORISTA')}>Minorista</button>
                         <button className={`toggle-btn ${saleType === 'MAYORISTA' ? 'active' : ''}`} onClick={() => handleSaleTypeChange('MAYORISTA')}>Mayorista</button>
@@ -972,173 +1106,182 @@ export default function VentaPage() {
                         tabIndex="1"
                     />
                     <datalist id="client-suggestions">
-                        {availableClients.map((client, index) => (
-                            <option key={index} value={client} />
+                        {availableClients.map((client) => (
+                            <option key={client.id} value={client.nombre} />
                         ))}
                     </datalist>
+                    {/* Show saldo badge when a matched client has available credit */}
+                    {selectedClientObj && (selectedClientObj.saldoAFavor ?? 0) > 0 && (
+                        <div style={{ fontSize: '0.78rem', color: '#0d9488', fontWeight: 600, marginTop: '2px', paddingLeft: '2px' }}>
+                            💳 Saldo a Favor disponible: {new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2 }).format(selectedClientObj.saldoAFavor)}
+                        </div>
+                    )}
                 </div>
 
                 <div className="cart-items-list" ref={cartListRef}>
-                    {cartItems.map((item, index) => (
-                        <div key={index} className={`cart-item ${item.quantity > item.product.cantidadStock ? 'stock-warning-row' : ''}`}>
-                            {/* Row 1: Product Name & Code, and Discount */}
-                            <div className="cart-row cart-row-top">
-                                <div className="cart-item-name-container">
-                                    <b className="cart-item-name" title={item.product.descripcion}>{item.product.descripcion}</b>
-                                    <small className="product-code-label">Cod: {item.product.codigo}</small>
-                                </div>
-                                <div className="item-discount">
-                                    <label>Desc. Producto</label>
-                                    <div style={{ display: 'flex', gap: '5px' }}>
-                                        <input
-                                            type="text"
-                                            inputMode="decimal"
-                                            value={item.unitPrice > 0 && item.discount > 0 ? ((item.discount / item.unitPrice) * 100).toFixed(2).replace(/\.00$/, '') : ''}
-                                            onChange={(e) => {
-                                                const val = enforceMoneyFormat(e.target.value);
-                                                const perc = parseFloat(val) || 0;
-                                                const absDiscount = item.unitPrice * (perc / 100);
-                                                updateItemDiscount(item.product.id, absDiscount.toFixed(2));
-                                            }}
-                                            onKeyDown={blockNonNumericKeys}
-                                            onPaste={sanitizeNumericPaste}
-                                            placeholder="%"
-                                            className="discount-input percentage-input"
-                                            style={{ width: '45px' }}
-                                            title="Descuento en %"
-                                        />
-                                        <input
-                                            type="text"
-                                            inputMode="decimal"
-                                            value={item.discount || ''}
-                                            onChange={(e) => {
-                                                const val = enforceMoneyFormat(e.target.value);
-                                                updateItemDiscount(item.product.id, val);
-                                            }}
-                                            onKeyDown={blockNonNumericKeys}
-                                            onPaste={sanitizeNumericPaste}
-                                            placeholder="$0"
-                                            className="discount-input absolute-input"
-                                            title="Descuento en $"
-                                        />
+                    {filteredCartItems.map((item, index) => {
+                        const isCartPerfectMatch = cartSearchQuery.trim() && item.product.codigo.toLowerCase() === cartSearchQuery.trim().toLowerCase();
+                        return (
+                            <div key={item.product.id || index} className={`cart-item ${item.quantity > item.product.cantidadStock ? 'stock-warning-row' : ''} ${isCartPerfectMatch ? 'perfect-match-highlight' : ''}`}>
+                                {/* Row 1: Product Name & Code, and Discount */}
+                                <div className="cart-row cart-row-top">
+                                    <div className="cart-item-name-container">
+                                        <b className="cart-item-name" title={item.product.descripcion}>{item.product.descripcion}</b>
+                                    </div>
+                                    <small className="product-code-label">{item.product.codigo}</small>
+                                    <div className="item-discount">
+                                        <label>Desc. Producto</label>
+                                        <div style={{ display: 'flex', gap: '5px' }}>
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={item.unitPrice > 0 && item.discount > 0 ? ((item.discount / item.unitPrice) * 100).toFixed(2).replace(/\.00$/, '') : ''}
+                                                onChange={(e) => {
+                                                    const val = enforceMoneyFormat(e.target.value);
+                                                    const perc = parseFloat(val) || 0;
+                                                    const absDiscount = item.unitPrice * (perc / 100);
+                                                    updateItemDiscount(item.product.id, absDiscount.toFixed(2));
+                                                }}
+                                                onKeyDown={blockNonNumericKeys}
+                                                onPaste={sanitizeNumericPaste}
+                                                placeholder="%"
+                                                className="discount-input percentage-input"
+                                                style={{ width: '45px' }}
+                                                title="Descuento en %"
+                                            />
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={item.discount || ''}
+                                                onChange={(e) => {
+                                                    const val = enforceMoneyFormat(e.target.value);
+                                                    updateItemDiscount(item.product.id, val);
+                                                }}
+                                                onKeyDown={blockNonNumericKeys}
+                                                onPaste={sanitizeNumericPaste}
+                                                placeholder="$0"
+                                                className="discount-input absolute-input"
+                                                title="Descuento en $"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            {/* Row 2: Price, Qty Controls, Total, Remove */}
-                            <div className="cart-row cart-row-bottom">
-                                <span className="price-label">{formatCurrency(item.unitPrice)}</span>
-                                <button
-                                    className="config-item-btn"
-                                    onClick={() => {
-                                        setConfigModalItem(item);
-                                        setConfigModalOpen(true);
-                                    }}
-                                    title="Configurar precios por cantidad"
-                                >
-                                    ⚙️
-                                </button>
-                                <div className="cart-item-qty">
-                                    {/* Req 1: [-] button disabled when local display value is empty/0 */}
+                                {/* Row 2: Price, Qty Controls, Total, Remove */}
+                                <div className="cart-row cart-row-bottom">
+                                    <span className="price-label">{formatCurrency(item.unitPrice)}</span>
                                     <button
-                                        className="qty-btn"
-                                        disabled={
-                                            (localQtyValues[item.product.id] !== undefined &&
-                                                (localQtyValues[item.product.id] === '' || Number(localQtyValues[item.product.id]) <= 1)) ||
-                                            item.quantity <= 1
-                                        }
+                                        className="config-item-btn"
                                         onClick={() => {
-                                            const result = updateQuantity(item.product.id, item.quantity - 1);
-                                            if (result === 'zero_blocked') {
-                                                toast('Para eliminar producto tocar su botón ×', { icon: 'ℹ️', duration: 2000 });
-                                            } else {
-                                                // Sync local buffer with new valid value
-                                                setLocalQtyValues(prev => {
-                                                    const next = { ...prev };
-                                                    delete next[item.product.id];
-                                                    return next;
-                                                });
-                                            }
+                                            setConfigModalItem(item);
+                                            setConfigModalOpen(true);
                                         }}
-                                    >-</button>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        className="qty-input"
-                                        // Req 1: Use localQtyValues as display buffer so empty string can be shown while editing.
-                                        // item.quantity (always >= 1) is only used when no local override exists.
-                                        value={localQtyValues[item.product.id] !== undefined
-                                            ? localQtyValues[item.product.id]
-                                            : item.quantity
-                                        }
-                                        onChange={(e) => {
-                                            const raw = e.target.value.replace(/[^0-9]/g, '');
-                                            if (raw === '') {
-                                                // Req 1: Store empty string locally — do NOT force a value while editing.
-                                                // hasInvalidQty detects this via localQtyValues and blocks action buttons.
-                                                setLocalQtyValues(prev => ({ ...prev, [item.product.id]: '' }));
-                                            } else {
-                                                const val = parseInt(raw, 10);
-                                                if (!isNaN(val) && val >= 1) {
-                                                    updateQuantity(item.product.id, val);
-                                                    // Clear local buffer once a valid int is committed
+                                        title="Configurar precios por cantidad"
+                                    >
+                                        ⚙️
+                                    </button>
+                                    <div className="cart-item-qty">
+                                        {/* Req 1: [-] button disabled when local display value is empty/0 */}
+                                        <button
+                                            className="qty-btn"
+                                            disabled={
+                                                (localQtyValues[item.product.id] !== undefined &&
+                                                    (localQtyValues[item.product.id] === '' || Number(localQtyValues[item.product.id]) <= 1)) ||
+                                                item.quantity <= 1
+                                            }
+                                            onClick={() => {
+                                                const result = updateQuantity(item.product.id, item.quantity - 1);
+                                                if (result === 'zero_blocked') {
+                                                    toast('Para eliminar producto tocar su botón ×', { icon: 'ℹ️', duration: 2000 });
+                                                } else {
+                                                    // Sync local buffer with new valid value
                                                     setLocalQtyValues(prev => {
                                                         const next = { ...prev };
                                                         delete next[item.product.id];
                                                         return next;
                                                     });
                                                 }
+                                            }}
+                                        >-</button>
+                                        <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            className="qty-input"
+                                            // Req 1: Use localQtyValues as display buffer so empty string can be shown while editing.
+                                            // item.quantity (always >= 1) is only used when no local override exists.
+                                            value={localQtyValues[item.product.id] !== undefined
+                                                ? localQtyValues[item.product.id]
+                                                : item.quantity
                                             }
-                                        }}
-                                        onBlur={(e) => {
-                                            // Req 1: On blur, show a non-disruptive warning ONLY if the field remains invalid.
-                                            // We do NOT auto-revert to 1 — the user must correct it manually.
-                                            const val = e.target.value;
-                                            if (!val || parseInt(val, 10) <= 0) {
-                                                setLastInvalidFieldId(item.product.id);
-                                            } else {
-                                                // Field is valid: clear any warning for this item
-                                                setLastInvalidFieldId(prev => prev === item.product.id ? null : prev);
-                                                // Also clear local buffer if a valid value was committed
+                                            onChange={(e) => {
+                                                const raw = e.target.value.replace(/[^0-9]/g, '');
+                                                if (raw === '') {
+                                                    // Req 1: Store empty string locally — do NOT force a value while editing.
+                                                    // hasInvalidQty detects this via localQtyValues and blocks action buttons.
+                                                    setLocalQtyValues(prev => ({ ...prev, [item.product.id]: '' }));
+                                                } else {
+                                                    const val = parseInt(raw, 10);
+                                                    if (!isNaN(val) && val >= 1) {
+                                                        updateQuantity(item.product.id, val);
+                                                        // Clear local buffer once a valid int is committed
+                                                        setLocalQtyValues(prev => {
+                                                            const next = { ...prev };
+                                                            delete next[item.product.id];
+                                                            return next;
+                                                        });
+                                                    }
+                                                }
+                                            }}
+                                            onBlur={(e) => {
+                                                // Req 1: On blur, show a non-disruptive warning ONLY if the field remains invalid.
+                                                // We do NOT auto-revert to 1 — the user must correct it manually.
+                                                const val = e.target.value;
+                                                if (!val || parseInt(val, 10) <= 0) {
+                                                    setLastInvalidFieldId(item.product.id);
+                                                } else {
+                                                    // Field is valid: clear any warning for this item
+                                                    setLastInvalidFieldId(prev => prev === item.product.id ? null : prev);
+                                                    // Also clear local buffer if a valid value was committed
+                                                    setLocalQtyValues(prev => {
+                                                        const next = { ...prev };
+                                                        delete next[item.product.id];
+                                                        return next;
+                                                    });
+                                                }
+                                            }}
+                                            onKeyDown={blockNonIntegerKeys}
+                                            onPaste={sanitizeIntegerPaste}
+                                        />
+                                        {/* Req 1: [+] button disabled when local display value is empty/zero */}
+                                        <button
+                                            className="qty-btn"
+                                            disabled={
+                                                localQtyValues[item.product.id] !== undefined &&
+                                                (localQtyValues[item.product.id] === '' || Number(localQtyValues[item.product.id]) <= 0)
+                                            }
+                                            onClick={() => {
+                                                updateQuantity(item.product.id, item.quantity + 1);
+                                                // Sync local buffer
                                                 setLocalQtyValues(prev => {
                                                     const next = { ...prev };
                                                     delete next[item.product.id];
                                                     return next;
                                                 });
-                                            }
-                                        }}
-                                        onKeyDown={blockNonIntegerKeys}
-                                        onPaste={sanitizeIntegerPaste}
-                                    />
-                                    {/* Req 1: [+] button disabled when local display value is empty/zero */}
-                                    <button
-                                        className="qty-btn"
-                                        disabled={
-                                            localQtyValues[item.product.id] !== undefined &&
-                                            (localQtyValues[item.product.id] === '' || Number(localQtyValues[item.product.id]) <= 0)
-                                        }
-                                        onClick={() => {
-                                            updateQuantity(item.product.id, item.quantity + 1);
-                                            // Sync local buffer
-                                            setLocalQtyValues(prev => {
-                                                const next = { ...prev };
-                                                delete next[item.product.id];
-                                                return next;
-                                            });
-                                        }}
-                                    >+</button>
+                                            }}
+                                        >+</button>
+                                    </div>
+                                    <span className="cart-item-total">{formatCurrency((Math.max(0, item.unitPrice - (item.discount || 0))) * item.quantity)}</span>
+                                    <button className="remove-btn-new" onClick={() => removeFromCart(item.product.id)}>×</button>
                                 </div>
-                                <span className="cart-item-total">{formatCurrency((Math.max(0, item.unitPrice - (item.discount || 0))) * item.quantity)}</span>
-                                <button className="remove-btn-new" onClick={() => removeFromCart(item.product.id)}>×</button>
-                            </div>
-                            {/* Req 1: Non-disruptive warning — only shown under the LAST field that was blurred invalid.
+                                {/* Req 1: Non-disruptive warning — only shown under the LAST field that was blurred invalid.
                                 Appears after blur (onBlur), NOT while typing. Prevents flashing alerts mid-edit. */}
-                            {lastInvalidFieldId === item.product.id && (
-                                <small className="qty-invalid-warning">
-                                    Para continuar operacion, ingrese valor mayor a 0
-                                </small>
-                            )}
-                        </div>
-                    ))}
+                                {lastInvalidFieldId === item.product.id && (
+                                    <small className="qty-invalid-warning">
+                                        Para continuar operacion, ingrese valor mayor a 0
+                                    </small>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* PAYMENT STACK */}
@@ -1265,17 +1408,6 @@ export default function VentaPage() {
                 </div>
 
                 {/* MODALS */}
-                {pendingProductToAdd && (
-                    <ConfirmationModal
-                        title="⚠️ Stock Insuficiente"
-                        message={`El producto "${pendingProductToAdd.descripcion}" tiene un stock de ${pendingProductToAdd.cantidadStock}. ¿Desea agregarlo de todas formas?`}
-                        confirmText="Sí, Agregar"
-                        cancelText="Cancelar"
-                        isWarning={true}
-                        onConfirm={confirmForceAdd}
-                        onCancel={() => setPendingProductToAdd(null)}
-                    />
-                )}
 
                 {pendingSaleType && (
                     <ConfirmationModal
@@ -1292,17 +1424,29 @@ export default function VentaPage() {
                 {showStockModal && (
                     <StockWarningModal
                         affectedProducts={affectedProducts}
-                        onClose={() => setShowStockModal(false)}
+                        onClose={() => {
+                            setShowStockModal(false);
+                            setPendingAction(null); // Clear intent on cancel to prevent state leakage
+                        }}
                         onContinue={() => {
                             setShowStockModal(false);
-                            // Set a small timeout to allow state to settle before debt verification starts, avoiding race conditions.
+                            // Branch on the original intent: prevents "Ignorar y Continuar"
+                            // from always triggering a Direct Sale when user intended a Pending Save.
+                            const action = pendingAction;
+                            setPendingAction(null); // Clear before async call
+                            // Set a small timeout to allow state to settle before next operation
                             setTimeout(() => {
-                                const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-                                const remaining = totals.total - totalPaid;
-                                if (remaining > 0.01) {
-                                    setShowDebtModal(true);
+                                if (action === 'SAVE_PENDING') {
+                                    executeSaveAsPending();
                                 } else {
-                                    handleFinalizeSale();
+                                    // Default / 'FINALIZE': run debt check then finalize
+                                    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+                                    const remaining = totals.total - totalPaid;
+                                    if (remaining > 0.01) {
+                                        setShowDebtModal(true);
+                                    } else {
+                                        handleFinalizeSale();
+                                    }
                                 }
                             }, 50);
                         }}

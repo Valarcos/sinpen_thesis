@@ -37,7 +37,7 @@ class DeudoresRepositoryTest extends BaseIntegrationTest {
         Long ventaId = createTestSale();
 
         // Act
-        deudoresRepository.save(ventaId, "Juan Perez", 500.00);
+        deudoresRepository.save(ventaId, "Juan Perez", null, 500.00);
 
         // Assert
         List<DeudaResponse> all = deudoresRepository.findAll();
@@ -53,7 +53,7 @@ class DeudoresRepositoryTest extends BaseIntegrationTest {
     void findById_returnsDebt() {
         // Arrange
         Long ventaId = createTestSale();
-        deudoresRepository.save(ventaId, "Maria Garcia", 300.00);
+        deudoresRepository.save(ventaId, "Maria Garcia", null, 300.00);
 
         // Get the ID from findAll
         Long debtId = deudoresRepository.findAll().getFirst().getId();
@@ -81,7 +81,7 @@ class DeudoresRepositoryTest extends BaseIntegrationTest {
     void updateMontoAndEstado_updatesAtomically() {
         // Arrange
         Long ventaId = createTestSale();
-        deudoresRepository.save(ventaId, "Pedro Lopez", 1000.00);
+        deudoresRepository.save(ventaId, "Pedro Lopez", null, 1000.00);
         Long debtId = deudoresRepository.findAll().getFirst().getId();
 
         // Act - Partial payment
@@ -99,7 +99,7 @@ class DeudoresRepositoryTest extends BaseIntegrationTest {
     void updateMontoAndEstado_canMarkAsPagado() {
         // Arrange
         Long ventaId = createTestSale();
-        deudoresRepository.save(ventaId, "Ana Rodriguez", 250.00);
+        deudoresRepository.save(ventaId, "Ana Rodriguez", null, 250.00);
         Long debtId = deudoresRepository.findAll().getFirst().getId();
 
         // Act - Full payment
@@ -119,8 +119,8 @@ class DeudoresRepositoryTest extends BaseIntegrationTest {
         Long ventaId1 = createTestSale();
         Long ventaId2 = createTestSale();
 
-        deudoresRepository.save(ventaId1, "First Debtor", 100.00);
-        deudoresRepository.save(ventaId2, "Second Debtor", 200.00);
+        deudoresRepository.save(ventaId1, "First Debtor", null, 100.00);
+        deudoresRepository.save(ventaId2, "Second Debtor", null, 200.00);
 
         // Act
         List<DeudaResponse> all = deudoresRepository.findAll();
@@ -135,7 +135,7 @@ class DeudoresRepositoryTest extends BaseIntegrationTest {
     void hasActiveDebts_returnsTrueWhenExists() {
         // Arrange
         Long ventaId = createTestSale();
-        deudoresRepository.save(ventaId, "Active Debtor", 500.00);
+        deudoresRepository.save(ventaId, "Active Debtor", null, 500.00);
 
         // Act
         boolean hasDebts = deudoresRepository.hasActiveDebts();
@@ -161,7 +161,7 @@ class DeudoresRepositoryTest extends BaseIntegrationTest {
     void hasActiveDebts_returnsFalseWhenAllPagado() {
         // Arrange
         Long ventaId = createTestSale();
-        deudoresRepository.save(ventaId, "Paid Debtor", 100.00);
+        deudoresRepository.save(ventaId, "Paid Debtor", null, 100.00);
         Long debtId = deudoresRepository.findAll().getFirst().getId();
         deudoresRepository.updateMontoAndEstado(debtId, 0.0, "PAGADO");
 
@@ -180,10 +180,10 @@ class DeudoresRepositoryTest extends BaseIntegrationTest {
         Long ventaId2 = createTestSale();
 
         // Debt 1: Today (Not Expired)
-        deudoresRepository.save(ventaId1, "New Debtor", 100.0);
+        deudoresRepository.save(ventaId1, "New Debtor", null, 100.0);
 
         // Debt 2: 20 Days Ago (Expired)
-        deudoresRepository.save(ventaId2, "Old Debtor", 200.0);
+        deudoresRepository.save(ventaId2, "Old Debtor", null, 200.0);
         // Manually backdate the second debt
         java.time.LocalDateTime oldDate = java.time.LocalDateTime.of(2026, java.time.Month.JANUARY, 1, 12, 0).minusDays(20);
         // Get ID of the last inserted (Old Debtor)

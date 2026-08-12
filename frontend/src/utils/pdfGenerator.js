@@ -90,16 +90,26 @@ export const generateReceipt = (saleData) => {
         doc.setFont(undefined, 'normal');
 
         // --- TABLE 1: ITEMS ---
+        let hasReturns = false;
+        let totalDevueltoFromItems = 0;
+
         const itemsBody = saleData.items.map(item => {
             const unitPrice = item.unitPrice || 0;
             const discount = item.discount || 0;
             const finalUnit = Math.max(0, unitPrice - discount);
-            const subtotal = finalUnit * item.quantity;
+            const returnedQty = item.returnedQuantity || 0;
+            const effectiveQty = item.quantity - returnedQty;
+            const subtotal = finalUnit * effectiveQty;
+
+            if (returnedQty > 0) {
+                hasReturns = true;
+                totalDevueltoFromItems += finalUnit * returnedQty;
+            }
 
             return [
                 item.codigo || 'N/A',
                 item.descripcion,
-                item.quantity,
+                returnedQty > 0 ? `${effectiveQty} (Orig: ${item.quantity}, Dev: ${returnedQty})` : `${item.quantity}`,
                 formatMoney(unitPrice),
                 discount > 0 ? `-${formatMoney(discount)}` : '-',
                 formatMoney(subtotal)
@@ -115,7 +125,7 @@ export const generateReceipt = (saleData) => {
             columnStyles: {
                 0: { cellWidth: 20 },
                 1: { cellWidth: 'auto' },
-                2: { cellWidth: 10, halign: 'center' },
+                2: { cellWidth: 22, halign: 'center' },
                 3: { cellWidth: 22, halign: 'right' },
                 4: { cellWidth: 22, halign: 'right' },
                 5: { cellWidth: 28, halign: 'right' }
@@ -129,17 +139,20 @@ export const generateReceipt = (saleData) => {
 
         saleData.items.forEach(item => {
             const discount = item.discount || 0;
-            if (discount > 0) {
+            const returnedQty = item.returnedQuantity || 0;
+            const effectiveQty = item.quantity - returnedQty;
+
+            if (discount > 0 && effectiveQty > 0) {
                 if (hasReason) {
                     discountRows.push([
-                        `${item.descripcion} (x${item.quantity})`,
+                        `${item.descripcion} (x${effectiveQty})`,
                         item.reason || '-',
-                        `-${formatMoney(discount * item.quantity)}`
+                        `-${formatMoney(discount * effectiveQty)}`
                     ]);
                 } else {
                     discountRows.push([
-                        `${item.descripcion} (x${item.quantity})`,
-                        `-${formatMoney(discount * item.quantity)}`
+                        `${item.descripcion} (x${effectiveQty})`,
+                        `-${formatMoney(discount * effectiveQty)}`
                     ]);
                 }
             }
@@ -178,6 +191,8 @@ export const generateReceipt = (saleData) => {
 
         // --- TABLE 3: PAYMENT METHODS (blue header) ---
         let payY = doc.lastAutoTable.finalY + 10;
+        let negativePaymentsExist = false;
+        let totalReembolsoEfectivo = 0;
 
         if (saleData.isCheque) {
             doc.setFontSize(10);
@@ -186,10 +201,14 @@ export const generateReceipt = (saleData) => {
             doc.setTextColor(0);
             doc.lastAutoTable = { finalY: payY + 5 };
         } else if (saleData.payments && saleData.payments.length > 0) {
-            const paymentsBody = saleData.payments.map(p => [
-                p.name,
-                formatMoney(p.amount)
-            ]);
+            const paymentsBody = saleData.payments.map(p => {
+                if (p.amount < 0) {
+                    negativePaymentsExist = true;
+                    totalReembolsoEfectivo += Math.abs(p.amount);
+                    return [`Reembolso (${p.name})`, formatMoney(p.amount)];
+                }
+                return [p.name, formatMoney(p.amount)];
+            });
 
             autoTable(doc, {
                 startY: payY,
@@ -208,8 +227,62 @@ export const generateReceipt = (saleData) => {
         // --- TOTAL ---
         let finalY = doc.lastAutoTable.finalY + 8;
         doc.setFontSize(12);
-        doc.setFont(undefined, 'bold');
-        doc.text(`TOTAL VENTA: ${formatMoney(saleData.total)}`, pageWidth - 14, finalY, { align: 'right' });
+
+        if (hasReturns) {
+            // Apply proportional global discount to return if applicable to get exact totals,
+            // or just use backend's calculation. If we don't have the backend's exact totalReembolso,
+            // we can approximate it or just trust `totalDevueltoFromItems` as base, but we actually
+            // should just calculate the total final as sum of effective subtotals minus global discount.
+
+            // Re-calculate the effective final total from the ground up:
+            let totalFinal = saleData.items.reduce((acc, item) => {
+                const effectiveQty = item.quantity - (item.returnedQuantity || 0);
+                const finalUnit = Math.max(0, (item.unitPrice || 0) - (item.discount || 0));
+                return acc + (finalUnit * effectiveQty);
+            }, 0);
+
+            // Deduct global discount fully or proportionately? If sale was partially returned, global discount was proportional.
+            // A simpler way to show it is Total Original vs Total Final
+
+            // To perfectly reflect backend, let's just use what we have
+            const totalOriginal = saleData.total;
+            let refundCashDeduction = totalReembolsoEfectivo;
+
+            // If they refunded via store credit, it won't show in negative payments. We'll just present the delta.
+            let totalDevueltoCalculated = totalDevueltoFromItems;
+
+            // Let's just do a clean summary:
+            doc.setFont(undefined, 'normal');
+            doc.text(`TOTAL ORIGINAL:`, pageWidth - 45, finalY, { align: 'right' });
+            doc.text(`${formatMoney(totalOriginal)}`, pageWidth - 14, finalY, { align: 'right' });
+
+            finalY += 6;
+            doc.setTextColor(200, 0, 0); // Red for devoluciones
+            doc.text(`DEVOLUCIONES:`, pageWidth - 45, finalY, { align: 'right' });
+            doc.text(`-${formatMoney(totalDevueltoCalculated)}`, pageWidth - 14, finalY, { align: 'right' });
+            doc.setTextColor(0);
+
+            finalY += 4;
+            doc.line(pageWidth - 60, finalY, pageWidth - 14, finalY);
+
+            finalY += 6;
+            const absoluteTotalFinal = totalOriginal - totalDevueltoCalculated;
+            doc.setFont(undefined, 'bold');
+            doc.text(`TOTAL FINAL: ${formatMoney(absoluteTotalFinal)}`, pageWidth - 14, finalY, { align: 'right' });
+
+            // Note for Store Credit
+            const totalSaldoAcred = totalDevueltoCalculated - refundCashDeduction;
+            if (totalSaldoAcred > 0.01) {
+                finalY += 10;
+                doc.setFontSize(8);
+                doc.setFont(undefined, 'normal');
+                doc.setTextColor(80);
+                doc.text(`* El saldo devuelto restante (${formatMoney(totalSaldoAcred)}) fue acreditado a Saldo a Favor.`, 14, finalY);
+            }
+        } else {
+            doc.setFont(undefined, 'bold');
+            doc.text(`TOTAL VENTA: ${formatMoney(saleData.total)}`, pageWidth - 14, finalY, { align: 'right' });
+        }
 
         // Dynamic filename: Venta- [Client] - dd-mm-YYYY.pdf
         const clientName = saleData.client || 'Consumidor Final';

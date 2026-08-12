@@ -13,6 +13,7 @@ public class DeudaResponse {
     private Long id;
     private Long ventaId;
     private String clienteNombre;
+    private Long clienteId;
     private Double montoDeuda; // The current remaining balance
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime fechaDeuda; // dd-mm-YYYY

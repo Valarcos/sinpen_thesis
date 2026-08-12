@@ -112,7 +112,7 @@ class CompraServiceTest {
     @DisplayName("UT-04: validateCostConsistency throws when cost mismatches DB variant")
     void validateCostConsistency_Throws_WhenCostMismatch() {
         // DB says $100
-        Product product = new Product("A", "Desc", 100.0, 150.0, 200.0);
+        Product product = Product.builder().codigo("A").descripcion("Desc").precioCosto(100.0).precioMayorista(150.0).precioMinorista(200.0).build();
         product.setId(1L);
 
         // Request says $150
@@ -123,14 +123,14 @@ class CompraServiceTest {
     @Test
     @DisplayName("UT-05: validateCostConsistency passes when cost matches exact")
     void validateCostConsistency_Passes_WhenCostMatchesExact() {
-        Product product = new Product("A", "Desc", 100.0, 150.0, 200.0);
+        Product product = Product.builder().codigo("A").descripcion("Desc").precioCosto(100.0).precioMayorista(150.0).precioMinorista(200.0).build();
         assertDoesNotThrow(() -> compraService.validateCostConsistency(product, 100.0));
     }
 
     @Test
     @DisplayName("UT-06: validateCostConsistency passes when difference is microscopic (Epsilon)")
     void validateCostConsistency_Passes_WhenDifferenceIsMicroscopic() {
-        Product product = new Product("A", "Desc", 100.0, 150.0, 200.0);
+        Product product = Product.builder().codigo("A").descripcion("Desc").precioCosto(100.0).precioMayorista(150.0).precioMinorista(200.0).build();
         // 100.0000001 vs 100.0 -> Should pass
         assertDoesNotThrow(() -> compraService.validateCostConsistency(product, 100.0000001));
     }
@@ -164,7 +164,7 @@ class CompraServiceTest {
         item2.setProductoId(2L); item2.setCantidad(1L); item2.setCostoUnitario(10.0);
 
         // Map only contains ID 1
-        Product p1 = new Product("A", "P1", 10.0, 0.0, 0.0); p1.setId(1L);
+        Product p1 = Product.builder().codigo("A").descripcion("P1").precioCosto(10.0).precioMayorista(0.0).precioMinorista(0.0).build(); p1.setId(1L);
         Map<Long, Product> partialMap = Map.of(1L, p1);
 
         List<CompraItemRequest> items = List.of(item1, item2);
@@ -178,8 +178,8 @@ class CompraServiceTest {
     @DisplayName("UT-09: processItems calculates totals and subtotals correctly")
     void processItems_CalculatesTotalAndSubtotals_Correctly() {
         // Arrange
-        Product p1 = new Product("A", "P1", 10.0, 0.0, 20.0); p1.setId(1L);
-        Product p2 = new Product("B", "P2", 20.0, 0.0, 40.0); p2.setId(2L);
+        Product p1 = Product.builder().codigo("A").descripcion("P1").precioCosto(10.0).precioMayorista(0.0).precioMinorista(20.0).build(); p1.setId(1L);
+        Product p2 = Product.builder().codigo("B").descripcion("P2").precioCosto(20.0).precioMayorista(0.0).precioMinorista(40.0).build(); p2.setId(2L);
         Map<Long, Product> productMap = Map.of(1L, p1, 2L, p2);
 
         CompraItemRequest i1 = new CompraItemRequest();
@@ -202,7 +202,7 @@ class CompraServiceTest {
     @DisplayName("UT-10: processItems handles Duplicate Items correctly (Aggregation)")
     void processItems_Handles_DuplicateItems_Correctly() {
         // Arrange
-        Product p1 = new Product("A", "P1", 10.0, 0.0, 20.0); p1.setId(1L);
+        Product p1 = Product.builder().codigo("A").descripcion("P1").precioCosto(10.0).precioMayorista(0.0).precioMinorista(20.0).build(); p1.setId(1L);
         Map<Long, Product> productMap = Map.of(1L, p1);
 
         // Add the SAME item twice
@@ -266,7 +266,7 @@ class CompraServiceTest {
     @DisplayName("UT-13 & UT-14: registrarCompra orchestrates full flow and logs strict audit")
     void registrarCompra_OrchestratesFullFlow_Success() {
         // Arrange
-        Product p = new Product("A", "P", 100.0, 0.0, 200.0); p.setId(1L);
+        Product p = Product.builder().codigo("A").descripcion("P").precioCosto(100.0).precioMayorista(0.0).precioMinorista(200.0).build(); p.setId(1L);
 
         when(productRepository.findAllById(anyList())).thenReturn(List.of(p));
         when(compraRepository.saveCompra(any())).thenReturn(500L); // Mock generated ID
@@ -311,7 +311,9 @@ class CompraServiceTest {
         // Arrange: product is present in the map but soft-deleted.
         // This covers the defence-in-depth check inside processItems(), independently
         // of findAllById() which filters activo=true in the repository.
-        Product inactiveProduct = new Product(1L, "OLD", "Producto Archivado", 100.0, 150.0, 200.0, 0L, false);
+        Product inactiveProduct = Product.builder().id(1L).codigo("OLD").descripcion("Producto Archivado")
+                .precioCosto(100.0).precioMayorista(150.0).precioMinorista(200.0)
+                .cantidadStock(0L).activo(false).build();
 
         CompraItemRequest item = new CompraItemRequest();
         item.setProductoId(1L);

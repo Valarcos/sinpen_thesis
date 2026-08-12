@@ -21,6 +21,10 @@ export default function CobrosYPedidosPage() {
     const [sortConfig, setSortConfig] = useState({ key: 'fecha_creacion', direction: 'desc' });
     const [searchId, setSearchId] = useState('');
     const [loading, setLoading] = useState(true);
+
+    // Pagination state
+    const [page, setPage] = useState(0);
+    const pageSize = 15;
     // CobrarChequesModal state
     const [showCobrarChequesModal, setShowCobrarChequesModal] = useState(false);
     const [cobrarChequesItem, setCobrarChequesItem] = useState(null);
@@ -426,13 +430,13 @@ export default function CobrosYPedidosPage() {
             toast.loading("Generando recibo...", { id: "print-toast" });
             const [saleRes, debtorRes, pagosRes, methodsRes] = await Promise.all([
                 api.get(`/ventas/${item.venta_id}`),
-                api.get(`/deudores`), // we need the exact debtor object to get original amount, etc.
+                api.get(`/deudores/${item.id_referencia}`), // we need the exact debtor object to get original amount, etc.
                 api.get(`/deudores/${item.id_referencia}/pagos`),
                 paymentMethods.length > 0 ? Promise.resolve({ data: paymentMethods }) : api.get('/ventas/metodos-pago')
             ]);
 
             const sale = saleRes.data;
-            const debtor = debtorRes.data.find(d => d.id === item.id_referencia);
+            const debtor = debtorRes.data;
             const pagos = pagosRes.data;
             const methods = methodsRes.data;
 
@@ -628,6 +632,20 @@ export default function CobrosYPedidosPage() {
         ? displayedItems.filter(i => i.id_referencia?.toString().startsWith(searchId))
         : displayedItems;
 
+    // Pagination logic
+    const totalElements = filteredAndSearchedItems.length;
+    const totalPages = Math.ceil(totalElements / pageSize);
+    const paginatedItems = filteredAndSearchedItems.slice(page * pageSize, (page + 1) * pageSize);
+
+    // Reset to page 0 if filters change and current page is out of bounds
+    useEffect(() => {
+        if (page >= totalPages && totalPages > 0) {
+            setPage(totalPages - 1);
+        } else if (totalPages === 0) {
+            setPage(0);
+        }
+    }, [filteredAndSearchedItems.length, page, totalPages]);
+
     return (
         <div className="cobros-page container">
             <div className="cobros-header" style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
@@ -635,17 +653,15 @@ export default function CobrosYPedidosPage() {
                 <input
                     type="text"
                     value={searchId}
-                    onChange={(e) => setSearchId(e.target.value.replace(/\\D/g, ''))}
+                    onChange={(e) => {
+                        setSearchId(e.target.value.replace(/\D/g, ''));
+                        setPage(0);
+                    }}
                     placeholder="Filtrar por ID de venta"
                     style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', minWidth: '200px' }}
                 />
             </div>
 
-            {/* Filter Tabs
-               ARCHITECTURE NOTE (Req 3c/3d): The UI labels below are intentionally different
-               from the backend domain values ('FIADO', 'PEDIDO'). This is a FRONTEND-ONLY rename
-               per business requirements. The filterType state, API calls, and DB schema
-               must continue using the original domain strings. DO NOT change the onClick values. */}
             <div className="sale-type-toggle" style={{ marginBottom: '1rem', justifyContent: 'center' }}>
                 <button
                     className={`toggle-btn ${filterType === 'ALL' ? 'active' : ''}`}
@@ -699,27 +715,23 @@ export default function CobrosYPedidosPage() {
                             </tr>
                             </thead>
                             <tbody>
-                            {filteredAndSearchedItems.map((item, index) => {
-                                // A PEDIDO is in an illegal overpaid state when the sum of all payments
-                                // (cash + cheques) already exceeds the sale total. This can happen when
-                                // a cashier reduces a cart total after payments were registered.
+                            {paginatedItems.map((item, index) => {
                                 const isOverpaid = item.tipo === 'PEDIDO' && item.monto_pagado > item.monto_total + 0.01;
 
                                 let rowStyle = {};
                                 if (isOverpaid) {
-                                    rowStyle = { backgroundColor: '#fff7ed', borderLeft: '4px solid #f59e0b' }; // Amber — illegal overpaid state
+                                    rowStyle = { backgroundColor: '#fff7ed', borderLeft: '4px solid #f59e0b' };
                                 } else if ((item.tipo === 'FIADO' || item.tipo === 'CHEQUE' || (item.tipo === 'PEDIDO' && item.has_cheque)) && item.fecha_cobro) {
                                     const today = new Date();
                                     today.setHours(0, 0, 0, 0);
                                     const fechaCobro = new Date(item.fecha_cobro);
-                                    // Workaround for timezone issue when creating Date from string
                                     fechaCobro.setMinutes(fechaCobro.getMinutes() + fechaCobro.getTimezoneOffset());
                                     fechaCobro.setHours(0,0,0,0);
 
                                     if (fechaCobro < today) {
-                                        rowStyle = { backgroundColor: '#fef2f2', borderLeft: '4px solid #ef4444' }; // Overdue - Strong
+                                        rowStyle = { backgroundColor: '#fef2f2', borderLeft: '4px solid #ef4444' };
                                     } else if (fechaCobro.getTime() === today.getTime()) {
-                                        rowStyle = { backgroundColor: '#f0fdfa', borderLeft: '4px solid #14b8a6' }; // Today - Soft Teal
+                                        rowStyle = { backgroundColor: '#f0fdfa', borderLeft: '4px solid #14b8a6' };
                                     }
                                 }
 
@@ -729,12 +741,6 @@ export default function CobrosYPedidosPage() {
                                         <td data-label="Cliente">{item.cliente_nombre}</td>
                                         <td data-label="Fecha">{formatDate(item.fecha_creacion)}</td>
                                         <td data-label="Tipo">
-                                            {/*
-                                      ARCHITECTURE NOTE (Req 3c/3d): UI display labels are intentionally
-                                      different from backend domain values. 'CHEQUE' displays as 'Cheque'
-                                      (teal), 'FIADO' as 'Cheque' (teal legacy), and 'PEDIDO' as 'Seña'.
-                                      The `item.tipo` value is never changed — it drives all API routing.
-                                    */}
                                             {(() => {
                                                 const isChequeSale = item.tipo === 'CHEQUE' || item.has_cheque;
                                                 if (isChequeSale) {
@@ -792,12 +798,9 @@ export default function CobrosYPedidosPage() {
                                         <td data-label="Acciones">
                                             <div className="action-buttons">
                                                 <div className="action-buttons-row">
-                                                    {/* 1. Pago */}
                                                     <button className="btn-pay" onClick={() => handleOpenPayment(item)}>
                                                         💰 Pago
                                                     </button>
-
-                                                    {/* 2. Ver Detalle */}
                                                     <button
                                                         className="btn-details"
                                                         onClick={() => handleViewDetails(item)}
@@ -805,8 +808,6 @@ export default function CobrosYPedidosPage() {
                                                     >
                                                         👁️ Ver Detalle
                                                     </button>
-
-                                                    {/* 3. Imprimir */}
                                                     {item.tipo === 'FIADO' && (
                                                         <button
                                                             className="btn-print"
@@ -833,8 +834,6 @@ export default function CobrosYPedidosPage() {
                                                         </button>
                                                     )}
                                                 </div>
-
-                                                {/* Row 2: Finalizar y Cancelar (Solo Pedidos Pendientes) */}
                                                 {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
                                                     <div className="action-buttons-row">
                                                         <button
@@ -862,16 +861,39 @@ export default function CobrosYPedidosPage() {
                                     </tr>
                                 );
                             })}
-                            {displayedItems.length === 0 && (
-                                <tr><td colSpan="11" style={{ textAlign: 'center' }}>No hay cobros ni pedidos registrados.</td></tr>
+                            {paginatedItems.length === 0 && (
+                                <tr>
+                                    <td colSpan="12" style={{ textAlign: 'center' }}>No se encontraron registros.</td>
+                                </tr>
                             )}
                             </tbody>
                         </table>
                     </div>
+
+                    {totalElements > pageSize && (
+                        <div className="pagination-controls bottom-pagination" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                            <button
+                                onClick={() => setPage(p => p - 1)}
+                                disabled={page === 0}
+                                className="btn-pagination"
+                            >
+                                ← Anterior
+                            </button>
+                            <span className="page-indicator">
+                                {page + 1} / {totalPages || 1}
+                            </span>
+                            <button
+                                onClick={() => setPage(p => p + 1)}
+                                disabled={page === (totalPages - 1) || totalPages === 0}
+                                className="btn-pagination"
+                            >
+                                Siguiente →
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {/* Modal de Pago */}
             {showPayModal && selectedItem && (
                 <div className="modal-overlay">
                     <div className="payment-modal-container" ref={pagoModalRef}>

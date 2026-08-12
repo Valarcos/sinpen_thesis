@@ -34,12 +34,28 @@ class ProductServiceTest {
     @org.mockito.InjectMocks
     private ProductService service;
 
+    // Helper: builds a fully-populated product (RowMapper-equivalent state)
+    private Product buildProduct(Long id, String codigo, String descripcion,
+                                 Double costo, Double mayorista, Double minorista,
+                                 Long stock, boolean activo) {
+        return Product.builder()
+                .id(id)
+                .codigo(codigo)
+                .descripcion(descripcion)
+                .precioCosto(costo)
+                .precioMayorista(mayorista)
+                .precioMinorista(minorista)
+                .cantidadStock(stock)
+                .activo(activo)
+                .build();
+    }
+
     // --- Read / Pass-through Tests ---
 
     @Test
     @DisplayName("getAll returns list from repository")
     void getAll_ReturnsList() {
-        Product p = new Product(1L, "C", "D", 1.0, 1.0, 1.0, 0L, true);
+        Product p = buildProduct(1L, "C", "D", 1.0, 1.0, 1.0, 0L, true);
         when(repository.findAll()).thenReturn(List.of(p));
         List<Product> result = service.getAll();
         assertEquals(1, result.size());
@@ -48,7 +64,7 @@ class ProductServiceTest {
     @Test
     @DisplayName("getAllOrSearch (Browse) returns PageResponse")
     void getAllOrSearch_Browse() {
-        Product p = new Product(1L, "C", "D", 1.0, 1.0, 1.0, 0L, true);
+        Product p = buildProduct(1L, "C", "D", 1.0, 1.0, 1.0, 0L, true);
         when(repository.findAll(20L, 0L)).thenReturn(List.of(p));
         when(repository.countAll()).thenReturn(1L);
 
@@ -61,7 +77,7 @@ class ProductServiceTest {
     @Test
     @DisplayName("getAllOrSearch (Search) returns PageResponse")
     void getAllOrSearch_Search() {
-        Product p = new Product(1L, "C", "D", 1.0, 1.0, 1.0, 0L, true);
+        Product p = buildProduct(1L, "C", "D", 1.0, 1.0, 1.0, 0L, true);
         when(repository.search("query")).thenReturn(List.of(p));
 
         PageResponse<Product> result = service.getAllOrSearch("query", 0L, 20L);
@@ -74,7 +90,7 @@ class ProductServiceTest {
     @Test
     @DisplayName("getById returns product when found")
     void getById_Success() {
-        Product p = new Product(1L, "C", "D", 1.0, 1.0, 1.0, 0L, true);
+        Product p = buildProduct(1L, "C", "D", 1.0, 1.0, 1.0, 0L, true);
         when(repository.findById(1L)).thenReturn(Optional.of(p));
 
         Product result = service.getById(1L);
@@ -108,28 +124,28 @@ class ProductServiceTest {
     @Test
     @DisplayName("Validate throws for null code")
     void validate_NullCode() {
-        Product p = new Product(null, "Desc", 10.0, 10.0, 10.0);
+        Product p = Product.builder().codigo(null).descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(10.0).build();
         assertThrows(BusinessRuleException.class, () -> service.validate(p));
     }
 
     @Test
     @DisplayName("Validate throws for blank description")
     void validate_BlankDescription() {
-        Product p = new Product("A", "", 10.0, 10.0, 10.0);
+        Product p = Product.builder().codigo("A").descripcion("").precioCosto(10.0).precioMayorista(10.0).precioMinorista(10.0).build();
         assertThrows(BusinessRuleException.class, () -> service.validate(p));
     }
 
     @Test
     @DisplayName("Validate throws for negative retail price")
     void validate_NegativeRetail() {
-        Product p = new Product("A", "Desc", 10.0, 10.0, -1.0);
+        Product p = Product.builder().codigo("A").descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(-1.0).build();
         assertThrows(BusinessRuleException.class, () -> service.validate(p));
     }
 
     @Test
     @DisplayName("Validate throws for negative cost")
     void validate_NegativeCost() {
-        Product p = new Product("A", "Desc", -1.0, 10.0, 10.0);
+        Product p = Product.builder().codigo("A").descripcion("Desc").precioCosto(-1.0).precioMayorista(10.0).precioMinorista(10.0).build();
         assertThrows(BusinessRuleException.class, () -> service.validate(p));
     }
 
@@ -161,7 +177,7 @@ class ProductServiceTest {
     @Test
     @DisplayName("Create saves valid product")
     void create_Success() {
-        Product p = new Product("CODE", "Desc", 10.0, 10.0, 20.0);
+        Product p = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(Collections.emptyList());
         when(repository.findAllByCodigo("CODE")).thenReturn(Collections.emptyList());
         when(repository.save(p)).thenReturn(p);
@@ -174,15 +190,15 @@ class ProductServiceTest {
     @Test
     @DisplayName("createWithStock saves product and calls stock service")
     void createWithStock_Success() {
-        Product p = new Product("CODE", "Desc", 10.0, 10.0, 20.0);
-        Product saved = new Product(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
+        Product p = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
+        Product saved = buildProduct(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
 
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(Collections.emptyList());
         when(repository.findAllByCodigo("CODE")).thenReturn(Collections.emptyList());
         when(repository.save(p)).thenReturn(saved);
         when(repository.findById(1L)).thenReturn(Optional.of(saved)); // For refresh call
 
-        Product created = service.createWithStock(p, 5L, 10L);
+        Product created = service.createWithStock(p, 5L, 10L, 99L);
 
         assertNotNull(created);
         verify(repository).save(p);
@@ -192,14 +208,14 @@ class ProductServiceTest {
     @Test
     @DisplayName("createWithStock does NOT call stock service if quantity is null/zero")
     void createWithStock_NoStock() {
-        Product p = new Product("CODE", "Desc", 10.0, 10.0, 20.0);
-        Product saved = new Product(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
+        Product p = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
+        Product saved = buildProduct(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
 
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(Collections.emptyList());
         when(repository.findAllByCodigo("CODE")).thenReturn(Collections.emptyList());
         when(repository.save(p)).thenReturn(saved);
 
-        service.createWithStock(p, 5L, null);
+        service.createWithStock(p, 5L, null, 99L);
 
         verify(repository).save(p);
         verifyNoInteractions(stockService);
@@ -208,8 +224,8 @@ class ProductServiceTest {
     @Test
     @DisplayName("Create throws on exact duplicate (Code+Cost+Price)")
     void create_Duplicate_Throws() {
-        Product p = new Product("CODE", "Desc", 10.0, 10.0, 20.0);
-        Product existing = new Product(1L, "CODE", "Old", 10.0, 10.0, 20.0, 0L, true);
+        Product p = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
+        Product existing = buildProduct(1L, "CODE", "Old", 10.0, 10.0, 20.0, 0L, true);
 
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(List.of(existing));
         when(repository.findAllByCodigo("CODE")).thenReturn(List.of(existing));
@@ -221,10 +237,9 @@ class ProductServiceTest {
     @Test
     @DisplayName("Create allows duplicate if code is '1' (Generic)")
     void create_Generic_AllowsDuplicates() {
-        Product p = new Product("1", "Genérico", 10.0, 10.0, 20.0);
+        Product p = Product.builder().codigo("1").descripcion("Genérico").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
 
-        // Even though existing matches perfectly, "1" bypasses the check purely in
-        // logic
+        // Even though existing matches perfectly, "1" bypasses the check purely in logic
         when(repository.save(p)).thenReturn(p);
 
         assertDoesNotThrow(() -> service.create(p));
@@ -236,7 +251,7 @@ class ProductServiceTest {
     @Test
     @DisplayName("Create defaults null wholesale price to retail price")
     void create_NullWholesale_DefaultsToRetail() {
-        Product p = new Product("CODE", "Desc", 10.0, null, 25.0);
+        Product p = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(null).precioMinorista(25.0).build();
         when(repository.findAllByCodigo("CODE")).thenReturn(Collections.emptyList());
         when(repository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -249,15 +264,15 @@ class ProductServiceTest {
     @Test
     @DisplayName("CreateWithStock defaults null wholesale price to retail price")
     void createWithStock_NullWholesale_DefaultsToRetail() {
-        Product p = new Product("CODE", "Desc", 10.0, null, 30.0);
-        Product saved = new Product(1L, "CODE", "Desc", 10.0, 30.0, 30.0, 0L, true);
+        Product p = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(null).precioMinorista(30.0).build();
+        Product saved = buildProduct(1L, "CODE", "Desc", 10.0, 30.0, 30.0, 0L, true);
 
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(Collections.emptyList());
         when(repository.findAllByCodigo("CODE")).thenReturn(Collections.emptyList());
         when(repository.save(any(Product.class))).thenReturn(saved);
         when(repository.findById(1L)).thenReturn(Optional.of(saved));
 
-        Product created = service.createWithStock(p, 5L, 10L);
+        Product created = service.createWithStock(p, 5L, 10L, 99L);
 
         assertEquals(30.0, p.getPrecioMayorista(), "Original product object should have wholesale defaulted");
         assertNotNull(created);
@@ -266,13 +281,13 @@ class ProductServiceTest {
     @Test
     @DisplayName("Update defaults null wholesale price to retail price")
     void update_NullWholesale_DefaultsToRetail() {
-        Product updateReq = new Product("CODE", "Desc", 10.0, null, 40.0);
-        Product existing = new Product(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
+        Product updateReq = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(null).precioMinorista(40.0).build();
+        Product existing = buildProduct(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
 
         when(repository.findById(1L)).thenReturn(Optional.of(existing));
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(List.of(existing));
 
-        service.update(1L, updateReq);
+        service.update(1L, updateReq, 99L);
 
         assertEquals(40.0, existing.getPrecioMayorista(), "Wholesale price should default to retail price on update");
         verify(repository).save(existing);
@@ -284,9 +299,9 @@ class ProductServiceTest {
     @DisplayName("internalCreate enforces Zero-Trust by overriding submitted prices with family prices")
     void internalCreate_ZeroTrust_OverridesPricesFromSiblings() {
         // User submits $99 for prices
-        Product p = new Product("CODE", "Desc", 10.0, 99.0, 99.0);
+        Product p = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(99.0).precioMinorista(99.0).build();
         // DB family has $50 wholesale, $60 retail
-        Product sibling = new Product(1L, "CODE", "Desc", 15.0, 50.0, 60.0, 0L, true);
+        Product sibling = buildProduct(1L, "CODE", "Desc", 15.0, 50.0, 60.0, 0L, true);
 
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(List.of(sibling));
         when(repository.findAllByCodigo("CODE")).thenReturn(List.of(sibling));
@@ -304,9 +319,9 @@ class ProductServiceTest {
     @DisplayName("internalCreate runs collision check AFTER zero-trust price assignment")
     void internalCreate_ZeroTrust_RunsCollisionCheckAfterPriceOverride() {
         // User submits $99 for prices, but $10 cost
-        Product p = new Product("CODE", "Desc", 10.0, 99.0, 99.0);
+        Product p = Product.builder().codigo("CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(99.0).precioMinorista(99.0).build();
         // DB family has $50 wholesale, $60 retail. Cost is ALSO 10!
-        Product sibling = new Product(1L, "CODE", "Desc", 10.0, 50.0, 60.0, 0L, true);
+        Product sibling = buildProduct(1L, "CODE", "Desc", 10.0, 50.0, 60.0, 0L, true);
 
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(List.of(sibling));
         // the duplicate check inside checkVariantCollision will see the overriden prices
@@ -321,7 +336,7 @@ class ProductServiceTest {
     @Test
     @DisplayName("internalCreate does NOT override prices for generic products (code '1')")
     void internalCreate_Generic_DoesNotOverridePrices() {
-        Product p = new Product("1", "Manzanas", 10.0, 15.0, 20.0);
+        Product p = Product.builder().codigo("1").descripcion("Manzanas").precioCosto(10.0).precioMayorista(15.0).precioMinorista(20.0).build();
 
         // '1' bypasses findSiblingsByFamily and findAllByCodigo entirely inside internalCreate
         when(repository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -338,13 +353,13 @@ class ProductServiceTest {
     @Test
     @DisplayName("Update throws BusinessRuleException when attempting to change code to an existing different family (Merge Block)")
     void update_MergeBlock_ThrowsWhenCodeBelongsToAnotherFamily() {
-        Product existing = new Product(1L, "OLD-CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
-        Product updateReq = new Product("NEW-CODE", "Desc", 10.0, 10.0, 20.0);
+        Product existing = buildProduct(1L, "OLD-CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
+        Product updateReq = Product.builder().codigo("NEW-CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
 
         when(repository.findById(1L)).thenReturn(Optional.of(existing));
         when(repository.existsByCodigo("NEW-CODE")).thenReturn(true);
 
-        BusinessRuleException ex = assertThrows(BusinessRuleException.class, () -> service.update(1L, updateReq));
+        BusinessRuleException ex = assertThrows(BusinessRuleException.class, () -> service.update(1L, updateReq, 99L));
         assertTrue(ex.getMessage().contains("pertenece a otra familia"));
         verify(repository, never()).save(any());
     }
@@ -352,14 +367,14 @@ class ProductServiceTest {
     @Test
     @DisplayName("Update allows code change when new code does not exist in DB")
     void update_MergeBlock_AllowsCodeChangeToNonExistentFamily() {
-        Product existing = new Product(1L, "OLD-CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
-        Product updateReq = new Product("NEW-CODE", "Desc", 10.0, 10.0, 20.0);
+        Product existing = buildProduct(1L, "OLD-CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
+        Product updateReq = Product.builder().codigo("NEW-CODE").descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
 
         when(repository.findById(1L)).thenReturn(Optional.of(existing));
         when(repository.existsByCodigo("NEW-CODE")).thenReturn(false);
         when(repository.findSiblingsByFamily("OLD-CODE", null)).thenReturn(List.of(existing));
 
-        service.update(1L, updateReq);
+        service.update(1L, updateReq, 99L);
 
         verify(repository).save(existing);
         assertEquals("NEW-CODE", existing.getCodigo());
@@ -369,13 +384,13 @@ class ProductServiceTest {
     @Test
     @DisplayName("Update allows code change to generic bucket '1' without checking existsByCodigo")
     void update_MergeBlock_AllowsCodeChangeToGenericBucket() {
-        Product existing = new Product(1L, "OLD-CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
-        Product updateReq = new Product("1", "Desc", 10.0, 10.0, 20.0);
+        Product existing = buildProduct(1L, "OLD-CODE", "Desc", 10.0, 10.0, 20.0, 0L, true);
+        Product updateReq = Product.builder().codigo("1").descripcion("Desc").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
 
         when(repository.findById(1L)).thenReturn(Optional.of(existing));
         when(repository.findSiblingsByFamily("OLD-CODE", null)).thenReturn(List.of(existing));
 
-        service.update(1L, updateReq);
+        service.update(1L, updateReq, 99L);
 
         verify(repository, never()).existsByCodigo("1");
         verify(repository).save(existing);
@@ -385,17 +400,17 @@ class ProductServiceTest {
     @Test
     @DisplayName("Update cascades description and prices to all siblings, but ignores cost")
     void update_CascadeUpdate_AllSiblingsReceiveNewDescription() {
-        Product existing = new Product(1L, "CODE", "Old Desc", 10.0, 20.0, 30.0, 0L, true);
-        Product sibling1 = new Product(2L, "CODE", "Old Desc", 15.0, 20.0, 30.0, 0L, true);
-        Product sibling2 = new Product(3L, "CODE", "Old Desc", 20.0, 20.0, 30.0, 0L, true);
+        Product existing = buildProduct(1L, "CODE", "Old Desc", 10.0, 20.0, 30.0, 0L, true);
+        Product sibling1 = buildProduct(2L, "CODE", "Old Desc", 15.0, 20.0, 30.0, 0L, true);
+        Product sibling2 = buildProduct(3L, "CODE", "Old Desc", 20.0, 20.0, 30.0, 0L, true);
 
         // Updating product 1
-        Product updateReq = new Product("CODE", "New Desc", 12.0, 25.0, 35.0);
+        Product updateReq = Product.builder().codigo("CODE").descripcion("New Desc").precioCosto(12.0).precioMayorista(25.0).precioMinorista(35.0).build();
 
         when(repository.findById(1L)).thenReturn(Optional.of(existing));
         when(repository.findSiblingsByFamily("CODE", null)).thenReturn(List.of(existing, sibling1, sibling2));
 
-        service.update(1L, updateReq);
+        service.update(1L, updateReq, 99L);
 
         // Verify target product (which is 'existing')
         verify(repository).save(existing);
@@ -421,12 +436,29 @@ class ProductServiceTest {
         ));
     }
 
+    @Test
+    @DisplayName("Update stamps actualizadoPor on all siblings")
+    void update_StampsActualizadoPorOnAllSiblings() {
+        Product existing = buildProduct(1L, "CODE", "Desc", 10.0, 20.0, 30.0, 0L, true);
+        Product sibling = buildProduct(2L, "CODE", "Desc", 15.0, 20.0, 30.0, 0L, true);
+        Product updateReq = Product.builder().codigo("CODE").descripcion("Updated Desc").precioCosto(12.0).precioMayorista(25.0).precioMinorista(35.0).build();
+
+        when(repository.findById(1L)).thenReturn(Optional.of(existing));
+        when(repository.findSiblingsByFamily("CODE", null)).thenReturn(List.of(existing, sibling));
+
+        service.update(1L, updateReq, 42L);
+
+        // Both the target and the sibling must have actualizadoPor = 42
+        assertEquals(42L, existing.getActualizadoPor());
+        assertEquals(42L, sibling.getActualizadoPor());
+    }
+
     // --- Delete Tests ---
 
     @Test
     @DisplayName("Delete calls audit service")
     void delete_Audits() {
-        Product existing = new Product(1L, "C", "D", 1.0, 1.0, 1.0, 10L, true);
+        Product existing = buildProduct(1L, "C", "D", 1.0, 1.0, 1.0, 10L, true);
         when(repository.findById(1L)).thenReturn(Optional.of(existing));
 
         service.deleteById(1L, 999L);
@@ -447,9 +479,9 @@ class ProductServiceTest {
     @Test
     @DisplayName("Update throws if product not found")
     void update_NotFound() {
-        Product p = new Product("C", "D", 1.0, 1.0, 1.0);
+        Product p = Product.builder().codigo("C").descripcion("D").precioCosto(1.0).precioMayorista(1.0).precioMinorista(1.0).build();
         when(repository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThrows(ResourceNotFoundException.class, () -> service.update(99L, p));
+        assertThrows(ResourceNotFoundException.class, () -> service.update(99L, p, 1L));
     }
 }

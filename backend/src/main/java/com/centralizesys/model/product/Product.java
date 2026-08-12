@@ -1,12 +1,19 @@
 package com.centralizesys.model.product;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+import java.time.LocalDateTime;
 
 @Getter
 @Setter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Product {
 
     private Long id;
@@ -21,29 +28,30 @@ public class Product {
     // so we specifically disable it for this field.
     // No setter is provided to prevent accidental Java-side modifications.
     @Setter(lombok.AccessLevel.NONE)
-    private Long cantidadStock;
+    @Builder.Default
+    private Long cantidadStock = 0L;
 
     // Soft-delete flag. When false, the product is logically deleted and invisible
     // to the application. Physical row and stock history are preserved.
-    private boolean activo;
+    @Builder.Default
+    private boolean activo = true;
 
-    // TODO: fix the constructor. Sonar raises it as an issue because it has 8 parameters instead of the 7 allowed.
-    // Full Constructor (Used by RowMapper)
-    public Product(Long id, String codigo, String descripcion, Double precioCosto,
-                   Double precioMayorista, Double precioMinorista, Long cantidadStock, boolean activo) {
-        this.id = id;
-        this.codigo = codigo;
-        this.descripcion = descripcion;
-        this.precioCosto = precioCosto;
-        this.precioMayorista = precioMayorista;
-        this.precioMinorista = precioMinorista;
-        this.cantidadStock = cantidadStock;
-        this.activo = activo;
-    }
+    // --- Audit Fields ---
+    // fecha_creacion is set once on INSERT and never overwritten by the UPDATE SQL.
+    // fecha_actualizacion is auto-stamped by the DB trigger trg_update_producto_timestamp.
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime fechaCreacion;
 
-    // Constructor for New Products (Stock is 0 until Locations are added, always active by default)
-    public Product(String codigo, String descripcion, Double precioCosto,
-                   Double precioMayorista, Double precioMinorista) {
-        this(null, codigo, descripcion, precioCosto, precioMayorista, precioMinorista, 0L, true);
-    }
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime fechaActualizacion;
+
+    // References usuarios(id). Defaults to 0 (Sistema) to satisfy DB NOT NULL
+    // constraint when no authenticated user is available (e.g., integration test setup).
+    @Builder.Default
+    private Long creadoPor = 0L;
+
+    @Builder.Default
+    private Long actualizadoPor = 0L;
+
+
 }

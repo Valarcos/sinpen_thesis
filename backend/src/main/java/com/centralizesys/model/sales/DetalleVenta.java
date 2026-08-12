@@ -25,4 +25,5 @@ public class DetalleVenta {
     private Double precioUnitario; // Final Price
     private Double subtotal;
     private Boolean anulado;
+    private Long cantidadDevuelta; // Units already returned
 }
