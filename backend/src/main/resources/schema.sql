@@ -22,7 +22,11 @@ CREATE TABLE IF NOT EXISTS productos (
                                          precio_minorista REAL NOT NULL,
                                          cantidad_stock INTEGER DEFAULT 0,
                                          tiendanube_id TEXT,
-                                         activo BOOLEAN NOT NULL DEFAULT TRUE
+                                         activo BOOLEAN NOT NULL DEFAULT TRUE,
+                                         fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                         fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                         creado_por INTEGER NOT NULL DEFAULT 0,
+                                         actualizado_por INTEGER NOT NULL DEFAULT 0
 );;
 
 -- 2. Tabla de Ubicaciones
@@ -345,7 +349,20 @@ CREATE TRIGGER trg_audit_no_delete
     FOR EACH ROW
 EXECUTE FUNCTION fn_audit_no_mutation();;
 
+-- Trigger: auto-stamp fecha_actualizacion on every UPDATE to productos
+CREATE OR REPLACE FUNCTION fn_update_producto_timestamp()
+    RETURNS TRIGGER AS $$
+BEGIN
+    NEW.fecha_actualizacion = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;;
 
+DROP TRIGGER IF EXISTS trg_update_producto_timestamp ON productos;;
+CREATE TRIGGER trg_update_producto_timestamp
+    BEFORE UPDATE ON productos
+    FOR EACH ROW
+EXECUTE FUNCTION fn_update_producto_timestamp();;
 
 
 -- ==========================================
@@ -441,3 +458,103 @@ ON CONFLICT (acronimo) DO NOTHING;;
 UPDATE metodos_pago
 SET acronimo = 'TBFBBVA', descripcion = 'Transferencia Fico BBVA'
 WHERE acronimo = 'TBF';;
+
+-- ==========================================
+-- MIRROR OF V6 (Part A): Clientes Table (Client Refactor)
+-- ==========================================
+
+-- Audit columns trigger function for clientes (idempotent due to OR REPLACE)
+CREATE OR REPLACE FUNCTION fn_update_cliente_timestamp()
+    RETURNS TRIGGER AS $$
+BEGIN
+    NEW.fecha_actualizacion = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;;
+
+CREATE TABLE IF NOT EXISTS clientes (
+                                        id                  SERIAL PRIMARY KEY,
+                                        nombre              TEXT NOT NULL,
+                                        telefono            TEXT,
+                                        dni                 TEXT,
+                                        saldo_a_favor       REAL NOT NULL DEFAULT 0,
+                                        activo              BOOLEAN NOT NULL DEFAULT TRUE,
+                                        fecha_creacion      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                        fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                        creado_por          INTEGER NOT NULL DEFAULT 0,
+                                        actualizado_por     INTEGER NOT NULL DEFAULT 0,
+                                        CONSTRAINT fk_clientes_creado_por      FOREIGN KEY (creado_por)       REFERENCES usuarios(id),
+                                        CONSTRAINT fk_clientes_actualizado_por FOREIGN KEY (actualizado_por)   REFERENCES usuarios(id)
+);;
+
+DROP TRIGGER IF EXISTS trg_update_cliente_timestamp ON clientes;;
+CREATE TRIGGER trg_update_cliente_timestamp
+    BEFORE UPDATE ON clientes
+    FOR EACH ROW
+EXECUTE FUNCTION fn_update_cliente_timestamp();;
+
+-- Add cliente_id FK to ventas (nullable to support anonymous sales in test data)
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS cliente_id INTEGER;;
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ventas_cliente') THEN
+            ALTER TABLE ventas ADD CONSTRAINT fk_ventas_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id);
+        END IF;
+    END $$;;
+
+-- Add cliente_id FK to deudores
+ALTER TABLE deudores ADD COLUMN IF NOT EXISTS cliente_id INTEGER;;
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_deudores_cliente') THEN
+            ALTER TABLE deudores ADD CONSTRAINT fk_deudores_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id);
+        END IF;
+    END $$;;
+
+-- ==========================================
+-- MIRROR OF V6 (Part B): Saldo a Favor Payment Method
+-- ==========================================
+
+INSERT INTO metodos_pago (acronimo, descripcion, activo)
+VALUES ('SALDO', 'Saldo a Favor', TRUE)
+ON CONFLICT (acronimo) DO NOTHING;;
+
+-- ==========================================
+-- MIRROR OF V6 (Part C): Devoluciones Venta (Return Ledger)
+-- ==========================================
+
+CREATE OR REPLACE FUNCTION fn_update_devolucion_timestamp()
+    RETURNS TRIGGER AS $$
+BEGIN
+    NEW.fecha_actualizacion = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;;
+
+CREATE TABLE IF NOT EXISTS devoluciones_venta (
+                                                  id                  SERIAL PRIMARY KEY,
+                                                  venta_id            INTEGER NOT NULL,
+                                                  detalle_venta_id    INTEGER NOT NULL,
+                                                  cantidad_devuelta   INTEGER NOT NULL CHECK (cantidad_devuelta > 0),
+                                                  monto_reembolsado   REAL NOT NULL CHECK (monto_reembolsado >= 0),
+                                                  tipo_reembolso      TEXT NOT NULL CHECK (tipo_reembolso IN ('SALDO', 'EFECTIVO')),
+                                                  observaciones       TEXT,
+                                                  fecha_devolucion    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                                  fecha_creacion      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                                  fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                                  creado_por          INTEGER NOT NULL DEFAULT 0,
+                                                  actualizado_por     INTEGER NOT NULL DEFAULT 0,
+                                                  CONSTRAINT fk_devoluciones_venta           FOREIGN KEY (venta_id)          REFERENCES ventas(id),
+                                                  CONSTRAINT fk_devoluciones_detalle         FOREIGN KEY (detalle_venta_id)  REFERENCES detalles_venta(id),
+                                                  CONSTRAINT fk_devoluciones_creado_por      FOREIGN KEY (creado_por)        REFERENCES usuarios(id),
+                                                  CONSTRAINT fk_devoluciones_actualizado_por FOREIGN KEY (actualizado_por)   REFERENCES usuarios(id)
+);;
+
+CREATE INDEX IF NOT EXISTS idx_devoluciones_venta_id         ON devoluciones_venta(venta_id);;
+CREATE INDEX IF NOT EXISTS idx_devoluciones_detalle_venta_id ON devoluciones_venta(detalle_venta_id);;
+
+DROP TRIGGER IF EXISTS trg_update_devolucion_timestamp ON devoluciones_venta;;
+CREATE TRIGGER trg_update_devolucion_timestamp
+    BEFORE UPDATE ON devoluciones_venta
+    FOR EACH ROW
+EXECUTE FUNCTION fn_update_devolucion_timestamp();;

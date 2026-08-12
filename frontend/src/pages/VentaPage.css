@@ -137,9 +137,39 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 1rem;
     margin-bottom: 0.4rem;
     padding-bottom: 0.4rem;
     border-bottom: 1px solid var(--border-color);
+}
+
+/* Cart Search Input styling */
+.cart-search-container {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    max-width: 250px;
+}
+
+.cart-search-input {
+    width: 100%;
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    font-size: 0.95rem;
+    outline: none;
+    background-color: var(--surface-color);
+    transition: background-color 0.2s, box-shadow 0.2s, border-color 0.2s;
+    color: var(--text-color);
+}
+
+.cart-search-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.2);
+}
+
+.cart-search-input::placeholder {
+    color: var(--text-secondary);
 }
 
 /* Groups the title + product counter on the left side of the header */
@@ -227,11 +257,11 @@
 .cart-item {
     display: flex;
     flex-direction: column;
-    padding: 0.5rem 0.6rem;
+    padding: 0.35rem 0.6rem;
     background: white;
     border-radius: 6px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    gap: 0.4rem;
+    gap: 0.2rem;
 }
 
 .cart-row {
@@ -241,19 +271,32 @@
 
 .cart-row-top {
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
 }
 
 .cart-item-name-container {
     display: flex;
-    align-items: baseline;
-    gap: 0.8rem;
+    align-items: flex-start;
+    flex: 1;
+    min-width: 0;
+    margin-right: 15px;
 }
 
 .cart-item-name {
     font-size: 0.95rem;
     color: var(--text-color);
     margin: 0;
+    line-height: 1.1;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.product-code-label {
+    margin-right: 10px;
+    margin-top: 2px;
+    color: var(--text-secondary);
 }
 
 .cart-row-bottom {
@@ -551,7 +594,6 @@
 .totals-discount-col {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
 }
 
 .discount-global-label {

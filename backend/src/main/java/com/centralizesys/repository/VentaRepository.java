@@ -33,6 +33,8 @@ public class VentaRepository {
     private static final String PARAM_END_DATE = "endDate";
     private static final String FIELD_ANULADO = "anulado";
     private static final String MONTO = "monto";
+    private static final String USUARIO_ID = "usuarioId";
+    private static final String METODO_PAGO_ID = "metodoPagoId";
 
     public VentaRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -43,11 +45,12 @@ public class VentaRepository {
     private final RowMapper<Venta> ventaMapper = (rs, rowNum) -> {
         Long usuarioIdVal = rs.getLong("usuario_id");
         Long usuarioId = rs.wasNull() ? null : usuarioIdVal;
-        return new Venta(
+        Venta v = new Venta(
                 rs.getLong("id"),
                 rs.getObject("fecha", LocalDateTime.class),
                 rs.getObject("fecha_creacion", LocalDateTime.class),
                 rs.getString("cliente_nombre"),
+                null, // clienteId: set below with null-safe helper
                 rs.getDouble("total_venta"),
                 rs.getDouble("descuento_global"),
                 rs.getString("tipo_venta"),
@@ -56,7 +59,10 @@ public class VentaRepository {
                 getNullableDouble(rs, "costo_total"),
                 getNullableLong(rs, "cantidad_productos")
         );
+        v.setClienteId(getNullableLong(rs, "cliente_id"));
+        return v;
     };
+
 
     private Double getNullableDouble(java.sql.ResultSet rs, String columnName) {
         try {
@@ -98,7 +104,8 @@ public class VentaRepository {
                 rs.getString("razon_descuento"),
                 rs.getDouble("precio_unitario"),
                 rs.getDouble("subtotal"),
-                anulado);
+                anulado,
+                0L);
     };
 
     private final RowMapper<PagoVenta> pagoMapper = (rs, rowNum) -> {
@@ -132,8 +139,8 @@ public class VentaRepository {
 
     public Long saveVenta(Venta venta) {
         String sql = """
-                    INSERT INTO ventas (fecha, fecha_creacion, cliente_nombre, total_venta, descuento_global, tipo_venta, estado, usuario_id)
-                    VALUES (:fecha, COALESCE(:fechaCreacion, :fecha), :clienteNombre, :totalVenta, :descuentoGlobal, :tipoVenta, COALESCE(:estado, 'ACTIVA'), :usuarioId)
+                    INSERT INTO ventas (fecha, fecha_creacion, cliente_nombre, cliente_id, total_venta, descuento_global, tipo_venta, estado, usuario_id)
+                    VALUES (:fecha, COALESCE(:fechaCreacion, :fecha), :clienteNombre, :clienteId, :totalVenta, :descuentoGlobal, :tipoVenta, COALESCE(:estado, 'ACTIVA'), :usuarioId)
                 """;
 
         SqlParameterSource params = new BeanPropertySqlParameterSource(venta);
@@ -202,9 +209,9 @@ public class VentaRepository {
                 """;
         namedJdbcTemplate.update(sql, new MapSqlParameterSource()
                 .addValue(VENTA_ID_PARAM, ventaId)
-                .addValue("metodoPagoId", metodoPagoId)
+                .addValue(METODO_PAGO_ID, metodoPagoId)
                 .addValue(MONTO, monto)
-                .addValue("usuarioId", usuarioId));
+                .addValue(USUARIO_ID, usuarioId));
     }
 
     public Long savePagoUnicoReturningId(Long ventaId, Long metodoPagoId, Double monto, Long usuarioId) {
@@ -215,9 +222,9 @@ public class VentaRepository {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue(VENTA_ID_PARAM, ventaId)
-                .addValue("metodoPagoId", metodoPagoId)
+                .addValue(METODO_PAGO_ID, metodoPagoId)
                 .addValue(MONTO, monto)
-                .addValue("usuarioId", usuarioId);
+                .addValue(USUARIO_ID, usuarioId);
 
         namedJdbcTemplate.update(sql, params, keyHolder, new String[]{"id"});
 
@@ -234,14 +241,29 @@ public class VentaRepository {
 
     // --- READ OPERATIONS ---
 
-    public List<Venta> findAll() {
+    public List<Venta> findVentasByClienteId(Long clienteId) {
         String sql = """
-                SELECT v.*,
+                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
                        (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                        (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                 FROM ventas v 
+                LEFT JOIN clientes c ON v.cliente_id = c.id
+                WHERE v.cliente_id = :clienteId
+                  AND v.estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE')
+                ORDER BY v.fecha DESC, v.id DESC
+                """;
+        return namedJdbcTemplate.query(sql, new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("clienteId", clienteId), ventaMapper);
+    }
+
+    public List<Venta> findAll() {
+        String sql = """
+                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
+                       (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
+                       (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
+                FROM ventas v 
+                LEFT JOIN clientes c ON v.cliente_id = c.id
                 WHERE v.estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE')
-                ORDER BY fecha DESC, id DESC
+                ORDER BY v.fecha DESC, v.id DESC
                 """;
         return jdbcTemplate.query(sql, ventaMapper);
     }
@@ -250,11 +272,12 @@ public class VentaRepository {
 
     public Optional<Venta> findById(Long id) {
         String sql = """
-                SELECT v.*,
+                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
                        (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                        (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                 FROM ventas v 
-                WHERE id = :id
+                LEFT JOIN clientes c ON v.cliente_id = c.id
+                WHERE v.id = :id
                 """;
         List<Venta> list = namedJdbcTemplate.query(sql, new MapSqlParameterSource("id", id), ventaMapper);
         return list.stream().findFirst();
@@ -305,10 +328,11 @@ public class VentaRepository {
 
     public List<Venta> findVentasByFechaBetween(java.time.LocalDateTime startDate, LocalDateTime endDate, Long searchId, int limit, int offset) {
         String sql = """
-                    SELECT v.*,
+                    SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
                            (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                            (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                     FROM ventas v
+                    LEFT JOIN clientes c ON v.cliente_id = c.id
                     WHERE v.estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE')
                 """;
 
@@ -325,20 +349,21 @@ public class VentaRepository {
                     .addValue(PARAM_END_DATE, endDate);
         }
 
-        sql += " ORDER BY fecha DESC, id DESC LIMIT :limit OFFSET :offset";
+        sql += " ORDER BY v.fecha DESC, v.id DESC LIMIT :limit OFFSET :offset";
 
         return namedJdbcTemplate.query(sql, params, ventaMapper);
     }
 
     public List<Venta> findVentasPendientesByFechaBetween(java.time.LocalDateTime startDate, LocalDateTime endDate, int limit, int offset) {
         String sql = """
-                    SELECT v.*,
+                    SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
                            (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                            (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                     FROM ventas v
+                    LEFT JOIN clientes c ON v.cliente_id = c.id
                     WHERE fecha_creacion BETWEEN :startDate AND :endDate
                       AND v.estado = 'PENDIENTE'
-                    ORDER BY fecha DESC, id DESC
+                    ORDER BY v.fecha DESC, v.id DESC
                     LIMIT :limit OFFSET :offset
                 """;
 
@@ -375,7 +400,7 @@ public class VentaRepository {
     }
 
     public List<String> findDistinctClientNames() {
-        String sql = "SELECT DISTINCT cliente_nombre FROM ventas WHERE cliente_nombre IS NOT NULL AND cliente_nombre != '' AND estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE') ORDER BY cliente_nombre";
+        String sql = "SELECT DISTINCT COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre FROM ventas v LEFT JOIN clientes c ON v.cliente_id = c.id WHERE COALESCE(c.nombre, v.cliente_nombre) IS NOT NULL AND COALESCE(c.nombre, v.cliente_nombre) != '' AND v.estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE') ORDER BY 1";
         return jdbcTemplate.queryForList(sql, String.class);
     }
 
@@ -420,5 +445,34 @@ public class VentaRepository {
     public void updatePagoAnulado(Long pagoId) {
         String sql = "UPDATE pagos_venta SET anulado = true WHERE id = :pagoId";
         namedJdbcTemplate.update(sql, new MapSqlParameterSource("pagoId", pagoId));
+    }
+
+    /**
+     * Fetches a single detalles_venta row by its primary key.
+     * Used to validate that the line item belongs to the claimed sale
+     * and to calculate the refund value.
+     */
+    public java.util.Optional<DetalleVenta> findDetalleById(Long detalleId) {
+        String sql = "SELECT * FROM detalles_venta WHERE id = :id";
+        List<DetalleVenta> list = namedJdbcTemplate.query(sql,
+                new MapSqlParameterSource("id", detalleId), detalleMapper);
+        return list.stream().findFirst();
+    }
+
+    /**
+     * Records a negative cash refund entry in pagos_venta.
+     * This is how a direct (Efectivo) refund is represented in the ledger
+     * without mutating historical rows: the negative amount offsets the original.
+     */
+    public void saveNegativoPago(Long ventaId, Long metodoPagoId, Double monto, Long usuarioId) {
+        String sql = """
+                    INSERT INTO pagos_venta (venta_id, metodo_pago_id, monto, fecha_pago, anulado, usuario_id)
+                    VALUES (:ventaId, :metodoPagoId, :monto, CURRENT_TIMESTAMP, false, :usuarioId)
+                """;
+        namedJdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue(VENTA_ID_PARAM, ventaId)
+                .addValue(METODO_PAGO_ID, metodoPagoId)
+                .addValue(MONTO, -Math.abs(monto))   // Always negative regardless of caller
+                .addValue(USUARIO_ID, usuarioId));
     }
 }

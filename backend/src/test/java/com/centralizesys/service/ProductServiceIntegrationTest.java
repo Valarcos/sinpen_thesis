@@ -26,7 +26,7 @@ class ProductServiceIntegrationTest extends BaseIntegrationTest {
 
         // Batch insert using Repository to ensure validity
         for (int i = 0; i < 105; i++) {
-            Product p = new Product("LIMIT-TEST-" + i, "Common Description Item " + i, 10.0, 10.0, 20.0);
+            Product p = Product.builder().codigo("LIMIT-TEST-" + i).descripcion("Common Description Item " + i).precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
             productRepository.save(p);
         }
 
@@ -42,7 +42,7 @@ class ProductServiceIntegrationTest extends BaseIntegrationTest {
     void search_MatchesBoth() {
         createTestProduct("FIND-ME-CODE", 100.0, 0L); // Helper from BaseIntegrationTest
 
-        Product p2 = new Product("HIDDEN-CODE", "FIND-ME-DESC", 10.0, 10.0, 10.0);
+        Product p2 = Product.builder().codigo("HIDDEN-CODE").descripcion("FIND-ME-DESC").precioCosto(10.0).precioMayorista(10.0).precioMinorista(10.0).build();
         productService.create(p2);
 
         List<Product> byCode = productService.search("FIND-ME-CODE");
@@ -76,7 +76,7 @@ class ProductServiceIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("IT-04: Product code is enforced to uppercase on save")
     void save_EnforcesUppercaseCode() {
-        Product p = new Product("prod-lower-123", "Lowercase Test", 10.0, 10.0, 20.0);
+        Product p = Product.builder().codigo("prod-lower-123").descripcion("Lowercase Test").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
         Product saved = productService.create(p);
 
         assertEquals("PROD-LOWER-123", saved.getCodigo(), "Product code should be saved as uppercase");
@@ -85,7 +85,7 @@ class ProductServiceIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("IT-05: Search is case-insensitive for description")
     void search_CaseInsensitiveDescription() {
-        Product p = new Product("DESC-CASE-TEST", "Galletas de Chocolate", 10.0, 10.0, 20.0);
+        Product p = Product.builder().codigo("DESC-CASE-TEST").descripcion("Galletas de Chocolate").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
         productService.create(p);
 
         List<Product> results = productService.search("galletas de chocolate");
@@ -96,8 +96,8 @@ class ProductServiceIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("IT-06: getVariantFamily works with lowercase queries")
     void getVariantFamily_LowercaseQuery() {
-        Product p1 = new Product("FAMILY-UPPER", "Family Test 1", 10.0, 10.0, 20.0);
-        Product p2 = new Product("FAMILY-UPPER", "Family Test 2", 15.0, 15.0, 25.0);
+        Product p1 = Product.builder().codigo("FAMILY-UPPER").descripcion("Family Test 1").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
+        Product p2 = Product.builder().codigo("FAMILY-UPPER").descripcion("Family Test 2").precioCosto(15.0).precioMayorista(15.0).precioMinorista(25.0).build();
         productService.create(p1);
         productService.create(p2);
 

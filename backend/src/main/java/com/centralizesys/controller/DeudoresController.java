@@ -3,6 +3,7 @@ package com.centralizesys.controller;
 import com.centralizesys.model.debt.DeudaResponse;
 import com.centralizesys.model.debt.PagoDeuda;
 import com.centralizesys.model.debt.PagoDeudaRequest;
+import com.centralizesys.model.dto.PageResponse;
 import com.centralizesys.service.DeudoresService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,8 +21,15 @@ public class DeudoresController {
     }
 
     @GetMapping
-    public ResponseEntity<List<DeudaResponse>> getAll() {
-        return ResponseEntity.ok(service.getAll());
+    public ResponseEntity<PageResponse<DeudaResponse>> getPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size) {
+        return ResponseEntity.ok(service.getPage(page, size));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<DeudaResponse> getById(@PathVariable Long id) {
+        return ResponseEntity.ok(service.getById(id));
     }
 
     @PostMapping("/{id}/pagar")

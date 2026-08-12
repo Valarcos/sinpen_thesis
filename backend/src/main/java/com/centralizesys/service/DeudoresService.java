@@ -8,6 +8,7 @@ import com.centralizesys.model.debt.PagoDeudaRequest; // NEW
 import com.centralizesys.model.enums.DebtStatus; // Using Enum
 import com.centralizesys.repository.DeudoresRepository;
 import com.centralizesys.util.Constants;// Using Constants
+import com.centralizesys.model.dto.PageResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,65 +19,100 @@ public class DeudoresService {
 
     private final DeudoresRepository repository;
     private final AuditoriaService auditoriaService;
+    private final com.centralizesys.repository.ClienteRepository clienteRepository;
+    private final com.centralizesys.repository.MetodoPagoRepository metodoPagoRepository;
 
-    public DeudoresService(DeudoresRepository repository, AuditoriaService auditoriaService) {
+    public DeudoresService(DeudoresRepository repository, AuditoriaService auditoriaService,
+                           com.centralizesys.repository.ClienteRepository clienteRepository,
+                           com.centralizesys.repository.MetodoPagoRepository metodoPagoRepository) {
         this.repository = repository;
         this.auditoriaService = auditoriaService;
+        this.clienteRepository = clienteRepository;
+        this.metodoPagoRepository = metodoPagoRepository;
     }
 
     public List<DeudaResponse> getAll() {
         return repository.findAll();
     }
 
+    public PageResponse<DeudaResponse> getPage(int page, int size) {
+        int offset = page * size;
+        List<DeudaResponse> deudas = repository.findPage(size, offset);
+        long totalElements = repository.countAll();
+        long totalPages = (long) Math.ceil((double) totalElements / size);
+
+        return new PageResponse<>(deudas, (long) page, (long) size, totalElements, totalPages);
+    }
+
+    public DeudaResponse getById(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(Constants.ERR_DEBT_NOT_FOUND, id));
+    }
+
     @Transactional
     public DeudaResponse registrarPago(Long id, List<PagoDeudaRequest> pagos, Long usuarioId) {
-        if (pagos == null || pagos.isEmpty()) {
-            throw new BusinessRuleException("Debe ingresar al menos un pago.");
-        }
+        double totalPago = calculateTotalPayment(pagos);
 
-        // 1. Calculate Total Payment
-        double totalPago = pagos.stream()
-                .mapToDouble(PagoDeudaRequest::getMontoPago)
-                .sum();
-
-        if (totalPago <= 0) {
-            throw new BusinessRuleException(Constants.ERR_PAYMENT_NEGATIVE);
-        }
-
-        // --- OPTIONAL USAGE EXPLANATION ---
         DeudaResponse deuda = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(Constants.ERR_DEBT_NOT_FOUND, id));
 
-        // 2. Update Balance
-        // We use Math.round to ensure 2 decimal precision without BigDecimal
-        double saldoActual = deuda.getMontoDeuda();
-        double rawNewBalance = saldoActual - totalPago;
-        double saldoFinal = Math.round(rawNewBalance * 100.0) / 100.0;
+        updateDebtBalanceAtomically(id, totalPago, deuda);
+        processPaymentRecords(id, pagos, deuda, usuarioId);
 
-        // 3. DYNAMIC STATE RECALCULATION
-        DebtStatus nuevoEstado = calculateStatus(saldoFinal, deuda.getMontoOriginal());
+        DeudaResponse updatedDeuda = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(Constants.ERR_DEBT_NOT_FOUND, id));
 
-        // 4. Persist Updates
-        repository.updateMontoAndEstado(id, saldoFinal, nuevoEstado.name());
-
-        // 5. Persist History (One record per method)
-        for (PagoDeudaRequest pago : pagos) {
-            if (pago.getMontoPago() > 0) {
-                repository.insertarPagoDeuda(id, pago.getMetodoPagoId(), pago.getMontoPago(), pago.getObservaciones(),
-                        usuarioId);
-            }
-        }
-
-        // 6. Update Object to return
-        deuda.setMontoDeuda(saldoFinal);
-        deuda.setEstado(nuevoEstado.name());
-
-        // 7. Audit Log
         auditoriaService.registrarAccion(usuarioId, "PAGO_DEUDA",
                 "Registrado pago de $" + totalPago + " (" + pagos.size() + " medios) para deuda ID " + id + " (" +
-                        deuda.getClienteNombre() + ")");
+                        updatedDeuda.getClienteNombre() + ")");
 
-        return deuda;
+        return updatedDeuda;
+    }
+
+    private double calculateTotalPayment(List<PagoDeudaRequest> pagos) {
+        if (pagos == null || pagos.isEmpty()) {
+            throw new BusinessRuleException("Debe ingresar al menos un pago.");
+        }
+        double totalPago = pagos.stream().mapToDouble(PagoDeudaRequest::getMontoPago).sum();
+        if (totalPago <= 0) {
+            throw new BusinessRuleException(Constants.ERR_PAYMENT_NEGATIVE);
+        }
+        return totalPago;
+    }
+
+    private void updateDebtBalanceAtomically(Long id, double totalPago, DeudaResponse deuda) {
+        double rawNewBalance = deuda.getMontoDeuda() - totalPago;
+        double saldoFinal = Math.round(rawNewBalance * 100.0) / 100.0;
+        DebtStatus nuevoEstado = calculateStatus(saldoFinal, deuda.getMontoOriginal());
+
+        int rowsAffected = repository.deductDeudaAtomic(id, totalPago, nuevoEstado.name());
+        if (rowsAffected == 0) {
+            throw new BusinessRuleException("Error de concurrencia al actualizar la deuda o monto de pago excesivo.");
+        }
+    }
+
+    private void processPaymentRecords(Long id, List<PagoDeudaRequest> pagos, DeudaResponse deuda, Long usuarioId) {
+        com.centralizesys.model.sales.MetodoPago saldoMethod = metodoPagoRepository.findByAcronimo("SALDO").orElse(null);
+        Long saldoId = saldoMethod != null ? saldoMethod.getId() : null;
+
+        for (PagoDeudaRequest pago : pagos) {
+            if (pago.getMontoPago() > 0) {
+                processSinglePaymentRecord(id, pago, deuda, saldoId, usuarioId);
+            }
+        }
+    }
+
+    private void processSinglePaymentRecord(Long id, PagoDeudaRequest pago, DeudaResponse deuda, Long saldoId, Long usuarioId) {
+        if (saldoId != null && saldoId.equals(pago.getMetodoPagoId())) {
+            if (deuda.getClienteId() == null) {
+                throw new BusinessRuleException("El pago con Saldo a Favor requiere un cliente seleccionado.");
+            }
+            int rows = clienteRepository.deductSaldo(deuda.getClienteId(), pago.getMontoPago());
+            if (rows == 0) {
+                throw new BusinessRuleException("Saldo a favor insuficiente para el cliente.");
+            }
+        }
+        repository.insertarPagoDeuda(id, pago.getMetodoPagoId(), pago.getMontoPago(), pago.getObservaciones(), usuarioId);
     }
 
     /**
@@ -135,17 +171,16 @@ public class DeudoresService {
             throw new BusinessRuleException("No se puede anular un pago de una deuda ya anulada.");
         }
 
-        // 3. Revert Balance
-        double saldoActual = deuda.getMontoDeuda();
-        double rawNewBalance = saldoActual + pago.getMonto();
+        // 3. Update DB Atomically
+        repository.updatePagoAnulado(pagoId);
+        double rawNewBalance = deuda.getMontoDeuda() + pago.getMonto();
         double saldoFinal = Math.round(rawNewBalance * 100.0) / 100.0;
-
-        // 4. Recalculate State
         DebtStatus nuevoEstado = calculateStatus(saldoFinal, deuda.getMontoOriginal());
 
-        // 5. Update DB
-        repository.updatePagoAnulado(pagoId);
-        repository.updateMontoAndEstado(deuda.getId(), saldoFinal, nuevoEstado.name());
+        int rowsAffected = repository.addDeudaAtomic(deuda.getId(), pago.getMonto(), nuevoEstado.name());
+        if (rowsAffected == 0) {
+            throw new BusinessRuleException("Error de concurrencia al restaurar la deuda.");
+        }
 
         // 6. Audit
         Long currentUserId = com.centralizesys.security.SecurityUtils.getAuthenticatedUserId();

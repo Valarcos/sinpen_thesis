@@ -158,6 +158,7 @@ export default function useCart() {
                 precioMayorista: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0))
             },
             quantity: d.cantidad,
+            originalReservedQuantity: d.cantidad, // Track what was already deducted from the DB for this pending sale
             unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
             discount: d.descuentoValor || 0
         }));

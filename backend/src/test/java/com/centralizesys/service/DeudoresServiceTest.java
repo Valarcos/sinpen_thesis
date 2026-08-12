@@ -39,10 +39,11 @@ class DeudoresServiceTest {
         PagoDeuda pago = new PagoDeuda(pagoId, deudaId, 1L, 100.0, null, null, 1L, false, "Efectivo", "Sistema");
 
         // Deuda has current balance of 0, original was 100
-        DeudaResponse deuda = new DeudaResponse(deudaId, 10L, "Juan", 0.0, null, "PAGADO", 100.0, null);
+        DeudaResponse deuda = new DeudaResponse(deudaId, 10L, "Juan", 1L, 0.0, null, "PAGADO", 100.0, null);
 
         when(repository.findPagoById(pagoId)).thenReturn(Optional.of(pago));
         when(repository.findById(deudaId)).thenReturn(Optional.of(deuda));
+        when(repository.addDeudaAtomic(deudaId, 100.0, "PENDIENTE")).thenReturn(1);
 
         // Mock security context for Auditoria (if not using static mock, just ensure auditoria runs)
 
@@ -52,7 +53,7 @@ class DeudoresServiceTest {
         // Then
         // Balance becomes 0 + 100 = 100. Since 100 == 100 (original), status becomes PENDIENTE.
         verify(repository).updatePagoAnulado(pagoId);
-        verify(repository).updateMontoAndEstado(deudaId, 100.0, "PENDIENTE");
+        verify(repository).addDeudaAtomic(deudaId, 100.0, "PENDIENTE");
         verify(auditoriaService).registrarAccion(any(), eq("PAGO_DEUDA"), anyString());
     }
 

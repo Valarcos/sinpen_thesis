@@ -58,7 +58,9 @@ class ProductControllerTest {
     @Test
     @DisplayName("Get All Products (Browse) returns PageResponse")
     void getAll_ReturnsPage() throws Exception {
-        Product p = new Product(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 5L, true);
+        Product p = Product.builder().id(1L).codigo("CODE").descripcion("Desc")
+                .precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0)
+                .cantidadStock(5L).activo(true).build();
         PageResponse<Product> pageResponse = new PageResponse<>(
                 List.of(p), 0L, 20L, 1L, 1L);
 
@@ -74,7 +76,9 @@ class ProductControllerTest {
     @Test
     @DisplayName("Search Products returns PageResponse")
     void search_ReturnsPage() throws Exception {
-        Product p = new Product(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 5L, true);
+        Product p = Product.builder().id(1L).codigo("CODE").descripcion("Desc")
+                .precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0)
+                .cantidadStock(5L).activo(true).build();
         PageResponse<Product> pageResponse = new PageResponse<>(
                 List.of(p), 0L, 100L, 1L, 1L);
 
@@ -98,9 +102,11 @@ class ProductControllerTest {
         req.setCantidad(5);
         req.setUbicacionId(1L);
 
-        Product saved = new Product(1L, "CODE", "Desc", 10.0, 10.0, 20.0, 5L, true);
+        Product saved = Product.builder().id(1L).codigo("CODE").descripcion("Desc")
+                .precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0)
+                .cantidadStock(5L).activo(true).build();
 
-        when(service.createWithStock(any(Product.class), eq(1L), eq(5L))).thenReturn(saved);
+        when(service.createWithStock(any(Product.class), eq(1L), eq(5L), any())).thenReturn(saved);
 
         mockMvc.perform(post("/api/productos")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -108,7 +114,7 @@ class ProductControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(1));
 
-        verify(service).createWithStock(any(Product.class), eq(1L), eq(5L));
+        verify(service).createWithStock(any(Product.class), eq(1L), eq(5L), any());
     }
 
     @Test
@@ -126,7 +132,7 @@ class ProductControllerTest {
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isNoContent());
 
-        verify(service).update(eq(1L), any(Product.class));
+        verify(service).update(eq(1L), any(Product.class), any());
     }
 
     @Test
@@ -142,7 +148,7 @@ class ProductControllerTest {
     @DisplayName("Create with invalid data returns 400")
     void create_InvalidData() throws Exception {
         // Assuming validation throws BusinessRuleException
-        when(service.createWithStock(any(Product.class), any(), any()))
+        when(service.createWithStock(any(Product.class), any(), any(), any()))
                 .thenThrow(new com.centralizesys.exception.BusinessRuleException("Invalid"));
 
         mockMvc.perform(post("/api/productos")
@@ -164,7 +170,9 @@ class ProductControllerTest {
     @Test
     @DisplayName("Get Alerts returns list")
     void getAlerts_Success() throws Exception {
-        Product p = new Product(1L, "CODE", "Desc", 10.0, 10.0, 20.0, -5L, true);
+        Product p = Product.builder().id(1L).codigo("CODE").descripcion("Desc")
+                .precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0)
+                .cantidadStock(-5L).activo(true).build();
         when(service.getLowStockAlerts()).thenReturn(List.of(p));
 
         mockMvc.perform(get("/api/productos/alerts"))

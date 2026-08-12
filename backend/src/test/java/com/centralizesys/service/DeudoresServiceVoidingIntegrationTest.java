@@ -40,7 +40,7 @@ class DeudoresServiceVoidingIntegrationTest extends BaseIntegrationTest {
         Long ventaId = ventaRepository.saveVenta(venta);
 
         // Create Debt of $100.00
-        deudoresRepository.save(ventaId, "Voiding Debtor", 100.00);
+        deudoresRepository.save(ventaId, "Voiding Debtor", null, 100.00);
 
         DeudaResponse initialDebt = deudoresRepository.findAll().stream()
                 .filter(d -> d.getVentaId().equals(ventaId))

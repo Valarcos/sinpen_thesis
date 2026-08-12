@@ -10,6 +10,7 @@ import java.util.List;
 @NoArgsConstructor
 public class VentaRequest {
     private String clienteNombre;
+    private Long clienteId; // NEW: from Phase 2 plan
     private Double descuentoGlobal = 0.0; // NEW
 
     // NOTE: This field is ALWAYS overridden by VentaController using

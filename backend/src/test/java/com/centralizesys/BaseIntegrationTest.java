@@ -99,7 +99,14 @@ public abstract class BaseIntegrationTest {
             // Reset stock for the test
             stockRepository.updateQuantity(prodId, locId, stock);
         } else {
-            Product p = new Product(code, "Test Desc", price * 0.5, price * 0.8, price);
+            // The 5-arg constructor sets safe defaults: stock=0, activo=true, creadoPor=0, actualizadoPor=0
+            Product p = Product.builder()
+                    .codigo(code)
+                    .descripcion("Test Desc")
+                    .precioCosto(price * 0.5)
+                    .precioMayorista(price * 0.8)
+                    .precioMinorista(price)
+                    .build();
             Product saved = productRepository.save(p);
             prodId = saved.getId();
         }
@@ -123,6 +130,9 @@ public abstract class BaseIntegrationTest {
         // In PostgreSQL, 'auditoria' has a BEFORE DELETE trigger that prevents DELETES.
         // TRUNCATE bypasses row-level DELETE triggers and is faster.
         jdbcTemplate.execute("TRUNCATE TABLE auditoria");
+
+        // Return Ledger (depends on detalles_venta and ventas)
+        jdbcTemplate.execute("DELETE FROM devoluciones_venta");
 
         // Sales Cycle
         jdbcTemplate.execute("DELETE FROM pagos_deuda");
@@ -148,6 +158,9 @@ public abstract class BaseIntegrationTest {
 
         // 2. Clear Products (Safe to delete as long as stock/sales are gone)
         jdbcTemplate.execute("DELETE FROM productos");
+
+        // Clients (ventas and deudores referencing clientes are already deleted above)
+        jdbcTemplate.execute("DELETE FROM clientes");
 
         // 3. DO NOT DELETE 'usuarios' or 'ubicaciones'
         // schema.sql inserts 'Administrador'. If we delete it, we might break

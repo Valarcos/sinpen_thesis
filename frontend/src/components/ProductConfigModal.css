@@ -128,19 +128,29 @@
 }
 
 .price-input-wrapper {
-    position: relative;
     display: flex;
     align-items: center;
+    gap: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--background-color);
+    padding: 0 8px;
 }
 
 .price-input-wrapper .currency-symbol {
-    position: absolute;
-    left: 8px;
     color: var(--text-secondary);
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    line-height: 1;
+    user-select: none;
 }
 
 .price-input-wrapper .config-price-input {
-    padding-left: 20px;
+    flex: 1;
+    border: none;
+    padding: 8px 0;
+    background: transparent;
+    min-width: 0;
 }
 
 /* Actions and Buttons copied from cheque modal styles */

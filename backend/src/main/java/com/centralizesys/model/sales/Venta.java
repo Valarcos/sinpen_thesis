@@ -16,6 +16,7 @@ public class Venta {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime fechaCreacion;
     private String clienteNombre;
+    private Long clienteId;           // FK to clientes.id (nullable for legacy sales)
     private Double totalVenta;
     private Double descuentoGlobal;
     private String tipoVenta; // NEW: Persisted 'MAYORISTA' or 'MINORISTA'

@@ -236,6 +236,9 @@
 .btn-delete { background-color: var(--color-error); }
 .btn-delete:hover:not(:disabled) { background-color: #b91c1c; }
 
+.btn-return { background-color: #0d9488; color: white; }
+.btn-return:hover:not(:disabled) { background-color: #0f766e; }
+
 .action-buttons {
     display: flex;
     flex-direction: column;
