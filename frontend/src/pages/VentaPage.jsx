@@ -949,19 +949,23 @@ export default function VentaPage() {
                             if ((e.key === 'Enter' || e.keyCode === 13) && !e.repeat) {
                                 e.preventDefault();
 
+                                // Use e.target.value to get the absolute latest string from the DOM,
+                                // because rapid barcode scanners might fire Enter before React state fully updates
+                                const currentSearchValue = e.target.value;
+
                                 // Prevent overlapping network calls if the user rapidly mashes the Enter key
-                                if (!searchQuery.trim() || isEnterSearchingRef.current) return;
+                                if (!currentSearchValue.trim() || isEnterSearchingRef.current) return;
 
                                 try {
                                     isEnterSearchingRef.current = true;
 
                                     // Bypass debounce and fetch immediately to support rapid barcode scanners
-                                    const params = { size: 50, search: searchQuery };
+                                    const params = { size: 50, search: currentSearchValue };
                                     const response = await api.get('/productos', { params });
                                     const fetchedProducts = groupProducts(response.data.content || []);
                                     setProducts(fetchedProducts);
 
-                                    const exactMatch = fetchedProducts.find(p => p.codigo === searchQuery);
+                                    const exactMatch = fetchedProducts.find(p => p.codigo === currentSearchValue);
 
                                     if (exactMatch) {
                                         if (!exactMatch._isGrouped) {
