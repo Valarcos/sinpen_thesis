@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import { formatCurrency, formatDate } from '../utils/format';
 import SalesDetailModal from '../components/SalesDetailModal';
 import CancellationModal from '../components/CancellationModal';
 import PartialReturnModal from '../components/PartialReturnModal';
-import { generateReceipt } from '../utils/pdfGenerator';
+import { generateReceipt, generateDebtorReceipt } from '../utils/pdfGenerator';
 import toast from 'react-hot-toast';
 import './SalesHistoryPage.css';
 
@@ -29,12 +29,17 @@ export default function SalesHistoryPage() {
     const [saleToReturn, setSaleToReturn] = useState(null); // For PartialReturnModal
     const [paymentMethods, setPaymentMethods] = useState([]);
     const [isPrinting, setIsPrinting] = useState(false);
+    const isMounted = React.useRef(true);
+
+    useEffect(() => {
+        return () => { isMounted.current = false; };
+    }, []);
 
     useEffect(() => {
         const fetchPaymentMethods = async () => {
             try {
                 const res = await api.get('/ventas/metodos-pago');
-                setPaymentMethods(res.data);
+                if (isMounted.current) setPaymentMethods(res.data);
             } catch (error) {
                 console.error('Error fetching payment methods:', error);
             }
@@ -84,15 +89,17 @@ export default function SalesHistoryPage() {
             }
 
             const res = await api.get('/ventas', { params });
+            if (!isMounted.current) return;
             // New PageResponse structure
             setSales(res.data.content);
             setTotalPages(res.data.totalPages);
             setTotalElements(res.data.totalElements);
         } catch (error) {
             console.error("Error loading sales", error);
-            toast.error(error.response?.data?.message || "Error al cargar historial");
+            const msg = error.response?.data?.message;
+            if (msg) toast.error(msg);
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     }, [page, pageSize, startDate, endDate, searchId]);
 
@@ -107,61 +114,124 @@ export default function SalesHistoryPage() {
     const handleOpenDetails = async (saleId) => {
         try {
             const res = await api.get(`/ventas/${saleId}`);
-            setSelectedSale(res.data);
+            // If it's a FIADO sale, we need the debt info for the modal's printing feature
+            let debtorInfo = null;
+            if (res.data.tipoVenta === 'FIADO') {
+                try {
+                    const deudorRes = await api.get(`/deudores/venta/${saleId}`);
+                    debtorInfo = deudorRes.data;
+                } catch (err) {
+                    console.error("Error fetching debtor info for modal:", err);
+                }
+            }
+            if (isMounted.current) setSelectedSale({ ...res.data, debtorInfo });
         } catch (error) {
             console.error("Error fetching sale details", error);
         }
     };
-
-    const handlePrintDirect = async (saleId) => {
-        if (isPrinting) return;
+    const handlePrintDirect = async (saleId, printItems = true) => {
         setIsPrinting(true);
         try {
-            const res = await api.get(`/ventas/${saleId}`);
-            const sale = res.data;
+            const saleRes = await api.get(`/ventas/${saleId}`);
+            const pagosRes = await api.get(`/ventas/${saleId}/pagos`);
+            const methodsRes = await api.get('/ventas/metodos-pago');
 
-            // Resolve payment method names using cached list (fetched once on mount)
-            const methods = paymentMethods;
-            const enrichedPayments = (sale.pagos || []).map(p => {
+            const sale = saleRes.data;
+            const pagos = pagosRes.data;
+            const methods = methodsRes.data;
+
+            const enrichedPayments = pagos.map(p => {
                 const method = methods.find(m => m.id === p.metodoPagoId);
                 return {
                     name: method ? method.descripcion : 'Desconocido',
-                    amount: p.monto
+                    amount: p.monto,
+                    pagoId: p.id,
+                    date: p.fechaPago
                 };
             });
+
+            // For historic sales, we also fetch cheques to display explicit cheque dates instead of generic payments
+            let cheques = [];
+            try {
+                const chequesRes = await api.get(`/alertas/cheques/venta/${saleId}`);
+                cheques = chequesRes.data;
+            } catch (err) {
+                console.error('Error fetching cheques for historic PDF:', err);
+            }
 
             const receiptData = {
                 id: sale.id,
                 date: sale.fecha,
                 client: sale.clienteNombre,
-                user: sale.vendedorNombre || 'Sistema',
-                saleType: sale.tipoVenta || 'ESTÁNDAR',
+                vendedor: sale.vendedorNombre,
+                saleType: sale.tipoVenta,
                 items: (sale.items || []).map(d => ({
                     codigo: d.productoCodigo || d.codigoSnapshot,
                     descripcion: d.productoNombre || d.descripcionSnapshot,
                     quantity: d.cantidad,
-                    returnedQuantity: d.cantidadDevuelta || 0,
                     unitPrice: d.precioLista || (d.precioUnitario + (d.descuentoValor || 0)),
                     discount: d.descuentoValor || 0,
-                    reason: d.razonDescuento || null,
-                    subtotal: d.subtotal
+                    returnedQuantity: d.cantidadDevuelta || 0,
+                    reason: d.razonDescuento || null
                 })),
                 payments: enrichedPayments,
+                cheques: cheques,
                 total: sale.totalVenta,
-                globalDiscount: sale.descuentoGlobal || 0
+                globalDiscount: Math.max(0, Number(sale.descuentoGlobal) || 0),
+                globalSurcharge: Math.max(0, Number(sale.recargoGlobal) || 0)
             };
 
-            generateReceipt(receiptData);
+            // If FIADO, fetch debt info and print Debt Receipt
+            if (sale.tipoVenta === 'FIADO') {
+                let debtorInfo = null;
+                let pagosDeuda = [];
+                try {
+                    const deudorRes = await api.get(`/deudores/venta/${saleId}`);
+                    debtorInfo = deudorRes.data;
+                    const pagosDeudaRes = await api.get(`/deudores/${debtorInfo.id}/pagos`);
+                    pagosDeuda = pagosDeudaRes.data;
+                } catch (err) {
+                    console.error("Error fetching debtor info for direct print:", err);
+                    toast.error("No se pudo cargar la información de la deuda.");
+                    setIsPrinting(false);
+                    return;
+                }
+
+                const debtorData = {
+                    ventaId: debtorInfo.ventaId,
+                    clienteNombre: debtorInfo.clienteNombre,
+                    fechaDeuda: debtorInfo.fechaDeuda,
+                    estado: debtorInfo.estado,
+                    montoOriginal: debtorInfo.montoOriginal,
+                    montoDeuda: debtorInfo.montoDeuda,
+                    saleDate: sale.fecha,
+                    user: sale.vendedorNombre || 'Sistema',
+                    saleType: sale.tipoVenta || 'ESTÁNDAR',
+                    items: receiptData.items,
+                    pagosDeuda: pagosDeuda,
+                    salePayments: enrichedPayments,
+                    cheques: cheques,
+                    globalDiscount: Math.max(0, Number(sale.descuentoGlobal) || 0),
+                    globalSurcharge: Math.max(0, Number(sale.recargoGlobal) || 0)
+                };
+
+                generateDebtorReceipt(debtorData);
+            } else {
+                generateReceipt(receiptData, { printItems });
+            }
         } catch (error) {
             console.error('Error generating direct print:', error);
             toast.error('Error al generar el PDF. Intente abriendo el detalle.');
         } finally {
-            setIsPrinting(false);
+            if (isMounted.current) setIsPrinting(false);
         }
     };
 
+    const [isCancelling, setIsCancelling] = useState(false);
+
     const confirmAnularVenta = async () => {
         if (!saleToCancel) return;
+        setIsCancelling(true);
         try {
             await api.post(`/ventas/${saleToCancel}/anular`);
             toast.success("Venta anulada exitosamente.");
@@ -169,8 +239,11 @@ export default function SalesHistoryPage() {
             loadSales();
         } catch (error) {
             console.error("Error anular venta", error);
-            toast.error(error.response?.data?.message || "Error al anular la venta");
+            // toast.error is handled globally by interceptor now, but keeping this as fallback or letting interceptor handle it
             setSaleToCancel(null);
+            loadSales(); // Auto-refresh in case it was a concurrency issue
+        } finally {
+            if (isMounted.current) setIsCancelling(false);
         }
     };
 
@@ -266,7 +339,7 @@ export default function SalesHistoryPage() {
                             {/* Req 5: ANULADA rows receive a muted background class for clear visual distinction.
                                  "Ver" button always remains functional for auditing. The "Anular" button is replaced
                                  by a passive read-only label when the sale is already cancelled. */}
-                            {sales.map(sale => (
+                            {(sales || []).map(sale => (
                                 <tr key={sale.id} className={sale.estado === 'ANULADA' ? 'row-anulada' : ''}>
                                     <td data-label="ID">#{sale.id}</td>
                                     <td data-label="Fecha">{formatDate(sale.fecha)}</td>
@@ -283,18 +356,29 @@ export default function SalesHistoryPage() {
                                         <div className="action-buttons">
                                             <div className="action-buttons-row">
                                                 <button className="btn-details" onClick={() => handleOpenDetails(sale.id)}>
-                                                    Ver
+                                                    👁️ Ver Detalle
                                                 </button>
                                                 <button
                                                     className="btn-print"
-                                                    onClick={() => handlePrintDirect(sale.id)}
+                                                    onClick={() => handlePrintDirect(sale.id, true)}
                                                     disabled={isPrinting}
-                                                    title="Imprimir Remito"
+                                                    title="Imprimir Remito Completo"
                                                 >
                                                     🖨️ Imprimir
                                                 </button>
+                                                <button
+                                                    className="btn-print"
+                                                    style={{ backgroundColor: '#6366f1', border: '1px solid #4f46e5' }}
+                                                    onClick={() => handlePrintDirect(sale.id, false)}
+                                                    disabled={isPrinting}
+                                                    title="Imprimir resumen de pagos únicamente"
+                                                >
+                                                    📄 Pagos
+                                                </button>
+                                            </div>
+                                            <div className="action-buttons-row">
                                                 {sale.estado === 'ANULADA' ? (
-                                                    <span className="label-cancelada">CANCELADA</span>
+                                                    <span className="label-cancelada" style={{ width: '100%', textAlign: 'center' }}>CANCELADA</span>
                                                 ) : (
                                                     <>
                                                         {sale.estado === 'DEVUELTA_PARCIAL' && (
@@ -309,7 +393,7 @@ export default function SalesHistoryPage() {
                                                         </button>
                                                         {sale.estado !== 'DEVUELTA_PARCIAL' && (
                                                             <button className="btn-delete" onClick={() => setSaleToCancel(sale.id)}>
-                                                                Anular
+                                                                ❌ Anular
                                                             </button>
                                                         )}
                                                     </>
@@ -360,6 +444,8 @@ export default function SalesHistoryPage() {
                 <SalesDetailModal
                     sale={selectedSale}
                     onClose={() => setSelectedSale(null)}
+                    printMode={selectedSale.tipoVenta === 'FIADO' ? 'debtor' : 'ticket'}
+                    debtorInfo={selectedSale.debtorInfo}
                 />
             )}
 
@@ -376,6 +462,7 @@ export default function SalesHistoryPage() {
                 message="¿Está seguro de que desea anular esta venta? Esta acción devolverá el stock y anulará los pagos/deudas. No se puede deshacer."
                 onConfirm={confirmAnularVenta}
                 onCancel={() => setSaleToCancel(null)}
+                isSubmitting={isCancelling}
             />
         </div>
     );

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { formatCurrency } from '../utils/format';
 import { generateReceipt, generateDebtorReceipt } from '../utils/pdfGenerator';
@@ -7,31 +7,43 @@ import '../pages/SalesHistoryPage.css';
 
 export default function SalesDetailModal({ sale, onClose, printMode = 'ticket', debtorInfo = null }) {
     const [paymentMethods, setPaymentMethods] = useState([]);
+    const isMounted = useRef(true);
 
     useEffect(() => {
+        isMounted.current = true;
         const fetchPaymentMethods = async () => {
             try {
                 const res = await api.get('/ventas/metodos-pago');
-                setPaymentMethods(res.data);
+                if (isMounted.current) setPaymentMethods(res.data);
             } catch (error) {
                 console.error("Error fetching payment methods", error);
             }
         };
         fetchPaymentMethods();
+        return () => { isMounted.current = false; };
     }, []);
 
     if (!sale) return null;
 
-    const handlePrintTicket = () => {
-        if (!sale || !paymentMethods.length) return;
+    const handlePrintTicket = async () => {
+        if (!sale || !(paymentMethods || []).length) return;
 
         const enrichedPayments = (sale.pagos || []).map(p => {
-            const method = paymentMethods.find(m => m.id === p.metodoPagoId);
+            const method = (paymentMethods || []).find(m => m.id === p.metodoPagoId);
             return {
                 name: method ? method.descripcion : 'Desconocido',
-                amount: p.monto
+                amount: p.monto,
+                pagoId: p.id
             };
         });
+
+        let cheques = [];
+        try {
+            const chequesRes = await api.get(`/alertas/cheques/venta/${sale.id}`);
+            cheques = chequesRes.data;
+        } catch (err) {
+            console.error('Error fetching cheques for modal PDF:', err);
+        }
 
         const receiptData = {
             id: sale.id,
@@ -50,8 +62,10 @@ export default function SalesDetailModal({ sale, onClose, printMode = 'ticket', 
                 subtotal: d.subtotal
             })),
             payments: enrichedPayments,
+            cheques: cheques,
             total: sale.totalVenta,
-            globalDiscount: sale.descuentoGlobal || 0
+            globalDiscount: Math.max(0, Number(sale.descuentoGlobal) || 0),
+            globalSurcharge: Math.max(0, Number(sale.recargoGlobal) || 0)
         };
 
         generateReceipt(receiptData);
@@ -63,12 +77,20 @@ export default function SalesDetailModal({ sale, onClose, printMode = 'ticket', 
         try {
             const pagosRes = await api.get(`/deudores/${debtorInfo.id}/pagos`);
             const pagos = pagosRes.data;
-            const methods = paymentMethods;
+            const methods = paymentMethods || [];
 
             const enrichedSalePayments = (sale.pagos || []).map(p => {
                 const method = methods.find(m => m.id === p.metodoPagoId);
-                return { name: method ? method.descripcion : 'Desconocido', amount: p.monto };
+                return { name: method ? method.descripcion : 'Desconocido', amount: p.monto, pagoId: p.id };
             });
+
+            let cheques = [];
+            try {
+                const chequesRes = await api.get(`/alertas/cheques/venta/${sale.id}`);
+                cheques = chequesRes.data;
+            } catch (err) {
+                console.error('Error fetching cheques for debtor modal PDF:', err);
+            }
 
             const debtorData = {
                 ventaId: debtorInfo.ventaId,
@@ -92,7 +114,9 @@ export default function SalesDetailModal({ sale, onClose, printMode = 'ticket', 
                 })),
                 pagosDeuda: pagos,
                 salePayments: enrichedSalePayments,
-                globalDiscount: sale.descuentoGlobal || 0
+                cheques: cheques,
+                globalDiscount: Math.max(0, Number(sale.descuentoGlobal) || 0),
+                globalSurcharge: Math.max(0, Number(sale.recargoGlobal) || 0)
             };
 
             generateDebtorReceipt(debtorData);
@@ -118,6 +142,9 @@ export default function SalesDetailModal({ sale, onClose, printMode = 'ticket', 
                     <p><strong>Cantidad de Productos:</strong> {sale.cantidadProductos || sale.items?.reduce((sum, item) => sum + (item.cantidad || 0), 0) || 0}</p>
                     {sale.descuentoGlobal > 0 && (
                         <p style={{ color: 'green' }}><strong>Descuento Global:</strong> -{formatCurrency(sale.descuentoGlobal)}</p>
+                    )}
+                    {sale.recargoGlobal > 0 && (
+                        <p style={{ color: '#dc2626' }}><strong>Recargo Global:</strong> +{formatCurrency(sale.recargoGlobal)}</p>
                     )}
                 </div>
 
