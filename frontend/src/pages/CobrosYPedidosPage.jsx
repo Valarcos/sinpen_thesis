@@ -21,6 +21,7 @@ export default function CobrosYPedidosPage() {
     const [sortConfig, setSortConfig] = useState({ key: 'fecha_creacion', direction: 'desc' });
     const [searchId, setSearchId] = useState('');
     const [loading, setLoading] = useState(true);
+    const isMounted = useRef(true);
 
     // Pagination state
     const [page, setPage] = useState(0);
@@ -151,26 +152,28 @@ export default function CobrosYPedidosPage() {
     }, [blocker]);
 
     useEffect(() => {
+        isMounted.current = true;
         fetchItems();
         fetchPaymentMethods();
+        return () => { isMounted.current = false; };
     }, []);
 
     const fetchItems = async () => {
         try {
             const response = await api.get('/cobros-y-pedidos');
-            setItems(response.data);
+            if (isMounted.current) setItems(response.data);
         } catch (error) {
             console.error(error);
-            toast.error("Error al cargar cobros y pedidos");
+            // Error handled by global api interceptor
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     };
 
     const fetchPaymentMethods = async () => {
         try {
             const res = await api.get('/ventas/metodos-pago');
-            setPaymentMethods(res.data);
+            if (isMounted.current) setPaymentMethods(res.data);
         } catch (error) {
             console.error("Error loading payment methods:", error);
         }
@@ -200,12 +203,13 @@ export default function CobrosYPedidosPage() {
                 ? `/deudores/${item.id_referencia}/pagos`
                 : `/ventas/${item.id_referencia}/pagos`;
             const res = await api.get(endpoint);
-            setHistoricalPayments(res.data.filter(p => !p.anulado));
+            if (isMounted.current) setHistoricalPayments(res.data.filter(p => !p.anulado));
 
             // Epic 2: Fetch attached cheques to manage them from this same modal
             const ventaId = item.tipo === 'FIADO' ? item.venta_id : item.id_referencia;
-            if (ventaId) {
+            try {
                 const chequesRes = await api.get(`/alertas/cheques/venta/${ventaId}`);
+                if (!isMounted.current) return;
                 const activeCheques = chequesRes.data.filter(c => c.estado !== 'ANULADA');
                 setHistoricalCheques(activeCheques);
 
@@ -214,6 +218,8 @@ export default function CobrosYPedidosPage() {
                     if (c.estado === 'PENDIENTE') methods[c.id] = '';
                 });
                 setChequeSelectedMethods(methods);
+            } catch (err) {
+                console.error("Error fetching cheques", err);
             }
         } catch (error) {
             console.error("Error fetching historical payments/cheques", error);
@@ -249,8 +255,12 @@ export default function CobrosYPedidosPage() {
             toast.success("Cobro de cheque anulado.");
 
             const ventaId = selectedItem.tipo === 'FIADO' ? selectedItem.venta_id : selectedItem.id_referencia;
-            const chequesRes = await api.get(`/alertas/cheques/venta/${ventaId}`);
-            setHistoricalCheques(chequesRes.data);
+            try {
+                const chequesRes = await api.get(`/alertas/cheques/venta/${ventaId}`);
+                setHistoricalCheques(chequesRes.data);
+            } catch (err) {
+                console.error('Error fetching cheques', err);
+            }
 
             fetchItems();
         } catch (err) {
@@ -288,7 +298,8 @@ export default function CobrosYPedidosPage() {
             methodId: method.id,
             methodName: method.descripcion,
             amount: amount,
-            observaciones: paymentNote
+            observaciones: paymentNote,
+            _internalId: Date.now() + Math.random()
         }]);
 
         setSelectedMethodId('');
@@ -304,7 +315,8 @@ export default function CobrosYPedidosPage() {
             methodName: method.descripcion,
             amount: parseFloat(c.monto),
             fechaCobro: c.fechaCobro,
-            observaciones: formatDateOnly(c.fechaCobro)
+            observaciones: formatDateOnly(c.fechaCobro),
+            _internalId: Date.now() + Math.random()
         }));
 
         setPayments([...payments, ...newPayments]);
@@ -314,10 +326,8 @@ export default function CobrosYPedidosPage() {
         setPaymentNote('');
     };
 
-    const handleRemovePayment = (index) => {
-        const newPayments = [...payments];
-        newPayments.splice(index, 1);
-        setPayments(newPayments);
+    const handleRemovePayment = (internalId) => {
+        setPayments(payments.filter(p => p._internalId !== internalId));
     };
 
     const cancelHistoricalPayment = async (pagoId) => {
@@ -327,6 +337,7 @@ export default function CobrosYPedidosPage() {
     };
 
     const handleRegisterPayment = async () => {
+        if (isSubmitting) return;
         if (payments.length === 0 && queuedPaymentsToRemove.length === 0 && queuedChequesToCobrar.length === 0 && queuedChequesToRemove.length === 0) {
             return toast.error("No hay cambios para registrar");
         }
@@ -375,22 +386,28 @@ export default function CobrosYPedidosPage() {
             }
 
             toast.success("Cambios aplicados exitosamente");
-            setShowPayModal(false);
+            if (isMounted.current) setShowPayModal(false);
             fetchItems();
         } catch (error) {
             console.error(error);
-            toast.error("Ocurrió un error al procesar los cambios. Es posible que se hayan guardado parcialmente.");
+            // Error handled by global api interceptor
             fetchItems(); // refresh state to avoid desync
         } finally {
-            setIsSubmitting(false);
+            if (isMounted.current) setIsSubmitting(false);
         }
     };
 
     const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
     const remainingDebt = selectedItem ? Math.max(0, selectedItem.saldo_restante - totalPaid) : 0;
     const availableMethods = paymentMethods.filter(m => {
-        const isCheque = (m.descripcion || '').toLowerCase().includes('cheque') || (m.descripcion || '').toLowerCase().includes('e-check') || (m.descripcion || '').toLowerCase().includes('echeck');
-        return isCheque || !payments.some(p => p.methodId === m.id);
+        if (m.activo === false) return false;
+        const acronimo = (m.acronimo || '').toUpperCase();
+
+        if (acronimo === 'SALDO' && (!selectedItem || !selectedItem.cliente_id)) {
+            return false;
+        }
+
+        return true;
     });
 
     const handleViewDetails = async (item) => {
@@ -411,16 +428,17 @@ export default function CobrosYPedidosPage() {
                 // For PEDIDO, we can use the pending sale endpoint
                 response = await api.get(`/ventas/${item.id_referencia}`);
             }
+            if (!isMounted.current) return;
             setViewSale(response?.data);
             setViewItemInfo(item);
         } catch (error) {
             toast.error("Error al cargar detalles");
         } finally {
-            setIsLoadingSale(false);
+            if (isMounted.current) setIsLoadingSale(false);
         }
     };
 
-    const handlePrintDebtor = async (item) => {
+    const handlePrintDebtor = async (item, printItems = true) => {
         if (item.tipo !== 'FIADO') {
             toast.error("La impresión de recibo sólo está disponible para deudas (Fiados).");
             return;
@@ -471,7 +489,7 @@ export default function CobrosYPedidosPage() {
                 globalDiscount: sale.descuentoGlobal || 0
             };
 
-            generateDebtorReceipt(debtorData);
+            generateDebtorReceipt(debtorData, { printItems });
             toast.success("Recibo generado.", { id: "print-toast" });
         } catch (error) {
             console.error('Error generating debtor PDF:', error);
@@ -479,22 +497,29 @@ export default function CobrosYPedidosPage() {
         }
     };
 
-    const handlePrintPedido = async (item) => {
+    const handlePrintPedido = async (item, printItems = true) => {
         try {
             toast.loading("Generando recibo de pedido...", { id: "print-pedido-toast" });
-            const [saleRes, pagosRes, methodsRes] = await Promise.all([
-                api.get(`/ventas/${item.id_referencia}`),
-                api.get(`/ventas/${item.id_referencia}/pagos`),
-                paymentMethods.length > 0 ? Promise.resolve({ data: paymentMethods }) : api.get('/ventas/metodos-pago')
-            ]);
+            const saleRes = await api.get(`/ventas/${item.id_referencia}`);
+            const pagosRes = await api.get(`/ventas/${item.id_referencia}/pagos`);
+            const methodsRes = await api.get('/ventas/metodos-pago');
 
             const sale = saleRes.data;
             const pagos = pagosRes.data;
             const methods = methodsRes.data;
 
+            // Fetch attached cheques to distinguish them in the PDF
+            let cheques = [];
+            try {
+                const chequesRes = await api.get(`/alertas/cheques/venta/${item.id_referencia}`);
+                cheques = chequesRes.data;
+            } catch (err) {
+                console.error('Error fetching cheques for PDF:', err);
+            }
+
             const enrichedPagos = pagos.map(p => {
                 const method = methods.find(m => m.id === p.metodoPagoId);
-                return { name: method ? method.descripcion : 'Desconocido', amount: p.monto, date: p.fechaPago };
+                return { name: method ? method.descripcion : 'Desconocido', amount: p.monto, date: p.fechaPago, pagoId: p.id };
             });
 
             const pedidoData = {
@@ -516,10 +541,12 @@ export default function CobrosYPedidosPage() {
                     subtotal: d.subtotal
                 })),
                 pagos: enrichedPagos,
-                globalDiscount: sale.descuentoGlobal || 0
+                cheques: cheques,
+                globalDiscount: sale.descuentoGlobal || 0,
+                globalSurcharge: sale.recargoGlobal || 0
             };
 
-            generatePendingSaleReceipt(pedidoData);
+            generatePendingSaleReceipt(pedidoData, { printItems });
             toast.success("Recibo de pedido generado.", { id: "print-pedido-toast" });
         } catch (error) {
             console.error('Error generating pedido PDF:', error);
@@ -537,19 +564,22 @@ export default function CobrosYPedidosPage() {
     };
 
     const confirmFinalizePedido = async () => {
-        if (!itemToFinalize) return;
-        setIsSubmitting(true);
+        if (!itemToFinalize || isSubmitting) return;
+        if (isMounted.current) setIsSubmitting(true);
         try {
             await api.post(`/ventas/${itemToFinalize.id_referencia}/finalizar`);
             toast.success("Pedido finalizado con éxito.");
-            setShowFinalizeModal(false);
-            setItemToFinalize(null);
+            if (isMounted.current) {
+                setShowFinalizeModal(false);
+                setItemToFinalize(null);
+            }
             fetchItems();
         } catch (error) {
             console.error(error);
-            toast.error("Error al finalizar el pedido.");
+            // Error handled by global api interceptor
+            fetchItems();
         } finally {
-            setIsSubmitting(false);
+            if (isMounted.current) setIsSubmitting(false);
         }
     };
 
@@ -558,18 +588,21 @@ export default function CobrosYPedidosPage() {
     };
 
     const confirmCancelPedido = async () => {
-        if (!itemToCancel) return;
-        setIsSubmitting(true);
+        if (!itemToCancel || isSubmitting) return;
+        if (isMounted.current) setIsSubmitting(true);
         try {
             await api.post(`/ventas/${itemToCancel.id_referencia}/cancelar`);
             toast.success("Pedido cancelado exitosamente. Stock retornado.");
             fetchItems();
         } catch (error) {
             console.error(error);
-            toast.error("Error al cancelar el pedido.");
+            // Error handled by global api interceptor
+            fetchItems();
         } finally {
-            setIsSubmitting(false);
-            setItemToCancel(null);
+            if (isMounted.current) {
+                setIsSubmitting(false);
+                setItemToCancel(null);
+            }
         }
     };
 
@@ -715,7 +748,7 @@ export default function CobrosYPedidosPage() {
                             </tr>
                             </thead>
                             <tbody>
-                            {paginatedItems.map((item, index) => {
+                            {(paginatedItems || []).map((item, index) => {
                                 const isOverpaid = item.tipo === 'PEDIDO' && item.monto_pagado > item.monto_total + 0.01;
 
                                 let rowStyle = {};
@@ -806,25 +839,47 @@ export default function CobrosYPedidosPage() {
                                                         onClick={() => handleViewDetails(item)}
                                                         disabled={isLoadingSale}
                                                     >
-                                                        👁️ Ver Detalle
+                                                        👁️ Detalle
                                                     </button>
                                                     {item.tipo === 'FIADO' && (
-                                                        <button
-                                                            className="btn-print"
-                                                            onClick={() => handlePrintDebtor(item)}
-                                                        >
-                                                            🖨️ Imprimir
-                                                        </button>
+                                                        <div className="action-buttons-row">
+                                                            <button
+                                                                className="btn-print"
+                                                                onClick={() => handlePrintDebtor(item, true)}
+                                                            >
+                                                                🖨️ Imprimir
+                                                            </button>
+                                                            <button
+                                                                className="btn-print"
+                                                                style={{ backgroundColor: '#6366f1', border: '1px solid #4f46e5' }}
+                                                                onClick={() => handlePrintDebtor(item, false)}
+                                                                title="Imprimir resumen de pagos únicamente"
+                                                            >
+                                                                📄 Pagos
+                                                            </button>
+                                                        </div>
                                                     )}
                                                     {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
-                                                        <button
-                                                            className="btn-print"
-                                                            onClick={() => handlePrintPedido(item)}
-                                                        >
-                                                            🖨️ Imprimir
-                                                        </button>
+                                                        <div className="action-buttons-row">
+                                                            <button
+                                                                className="btn-print"
+                                                                onClick={() => handlePrintPedido(item, true)}
+                                                            >
+                                                                🖨️ Imprimir
+                                                            </button>
+                                                            <button
+                                                                className="btn-print"
+                                                                style={{ backgroundColor: '#6366f1', border: '1px solid #4f46e5' }}
+                                                                onClick={() => handlePrintPedido(item, false)}
+                                                                title="Imprimir resumen de pagos únicamente"
+                                                            >
+                                                                📄 Pagos
+                                                            </button>
+                                                        </div>
                                                     )}
-                                                    {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
+                                                </div>
+                                                {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
+                                                    <div className="action-buttons-row">
                                                         <button
                                                             className="btn-pay"
                                                             style={{ backgroundColor: '#f59e0b', border: '1px solid #d97706' }}
@@ -832,10 +887,6 @@ export default function CobrosYPedidosPage() {
                                                         >
                                                             ✏️ Editar
                                                         </button>
-                                                    )}
-                                                </div>
-                                                {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
-                                                    <div className="action-buttons-row">
                                                         <button
                                                             className="btn-pay"
                                                             style={{ backgroundColor: item.monto_pagado > 0 && !isOverpaid ? '#2563eb' : '#94a3b8', border: '1px solid ' + (item.monto_pagado > 0 && !isOverpaid ? '#1d4ed8' : '#64748b') }}
@@ -849,10 +900,10 @@ export default function CobrosYPedidosPage() {
                                                                         : 'Finalizar pedido y crear venta'
                                                             }
                                                         >
-                                                            {isSubmitting ? 'Procesando...' : '✅ Finalizar Venta'}
+                                                            {isSubmitting ? 'Procesando...' : '✅ Finalizar'}
                                                         </button>
                                                         <button className="btn-delete" onClick={() => handleCancelarPedido(item)} disabled={isSubmitting}>
-                                                            ❌ Cancelar Pedido
+                                                            ❌ Cancelar
                                                         </button>
                                                     </div>
                                                 )}
@@ -861,7 +912,7 @@ export default function CobrosYPedidosPage() {
                                     </tr>
                                 );
                             })}
-                            {paginatedItems.length === 0 && (
+                            {(paginatedItems || []).length === 0 && (
                                 <tr>
                                     <td colSpan="12" style={{ textAlign: 'center' }}>No se encontraron registros.</td>
                                 </tr>
@@ -904,7 +955,7 @@ export default function CobrosYPedidosPage() {
                         </div>
                         <div className="payment-modal-info">
                             <div>Cliente: <strong>{selectedItem.cliente_nombre}</strong></div>
-                            <div>Deuda Inicial: <strong>${selectedItem.saldo_restante.toFixed(2)}</strong></div>
+                            <div>Total Venta: <strong>${(selectedItem.monto_total ?? 0).toFixed(2)}</strong></div>
                             <div>A Pagar: <strong style={{ color: remainingDebt === 0 ? 'green' : 'red' }}>${remainingDebt.toFixed(2)}</strong></div>
                         </div>
 
@@ -944,6 +995,7 @@ export default function CobrosYPedidosPage() {
                                 ref={paymentAmountRef}
                                 type="text"
                                 inputMode="decimal"
+                                min="0"
                                 placeholder="Monto"
                                 value={paymentAmount}
                                 onChange={(e) => setPaymentAmount(enforceMoneyFormat(e.target.value))}
@@ -959,6 +1011,7 @@ export default function CobrosYPedidosPage() {
                             placeholder="Observaciones (Opcional)"
                             value={paymentNote}
                             onChange={(e) => setPaymentNote(e.target.value)}
+                            maxLength={255}
                             className="payment-modal-input-full"
                         />
                         <button
@@ -973,10 +1026,10 @@ export default function CobrosYPedidosPage() {
                             <div className="payment-modal-list-container">
                                 <h5>Pagos a Registrar:</h5>
                                 <ul className="payment-modal-list" ref={paymentsListRef}>
-                                    {payments.map((p, idx) => (
-                                        <li key={idx}>
+                                    {(payments || []).map((p) => (
+                                        <li key={p._internalId}>
                                             <span>{p.methodName} {p.observaciones ? `(${p.observaciones})` : ''} - <strong>${p.amount.toFixed(2)}</strong></span>
-                                            <button className="payment-modal-list-btn" onClick={() => handleRemovePayment(idx)} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>❌</button>
+                                            <button className="payment-modal-list-btn" onClick={() => handleRemovePayment(p._internalId)} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>❌</button>
                                         </li>
                                     ))}
                                 </ul>
@@ -993,7 +1046,7 @@ export default function CobrosYPedidosPage() {
                                     </span>
                                 </h5>
                                 <ul className="payment-modal-list" ref={historicalPaymentsListRef}>
-                                    {historicalPayments.map((p, idx) => {
+                                    {(historicalPayments || []).map((p, idx) => {
                                         const methodId = p.metodo_pago_id || p.metodoPagoId;
                                         const methodObj = paymentMethods.find(m => m.id === methodId);
                                         const methodName = methodObj ? methodObj.descripcion : 'Desconocido';
@@ -1024,7 +1077,7 @@ export default function CobrosYPedidosPage() {
                                     </span>
                                 </h5>
                                 <ul className="payment-modal-list cheques-list" ref={historicalChequesListRef}>
-                                    {[...historicalCheques].sort((a, b) => {
+                                    {[...(historicalCheques || [])].sort((a, b) => {
                                         const aPending = a.estado === 'PENDIENTE' ? 0 : 1;
                                         const bPending = b.estado === 'PENDIENTE' ? 0 : 1;
                                         if (aPending !== bPending) return aPending - bPending;
@@ -1067,6 +1120,7 @@ export default function CobrosYPedidosPage() {
                                                             <option value="">Seleccione Método...</option>
                                                             {paymentMethods
                                                                 .filter(m => {
+                                                                    if (m.activo === false) return false;
                                                                     const desc = (m.descripcion || '').toLowerCase();
                                                                     return !desc.includes('cheque') && !desc.includes('e-check') && !desc.includes('echeck');
                                                                 })
@@ -1179,7 +1233,7 @@ export default function CobrosYPedidosPage() {
                         <div className="payment-modal-actions">
                             <button className="secondary" onClick={() => setShowPayModal(false)} disabled={isSubmitting}>Cancelar</button>
                             <button className="primary" onClick={handleRegisterPayment} disabled={isSubmitting || (payments.length === 0 && queuedPaymentsToRemove.length === 0 && queuedChequesToCobrar.length === 0 && queuedChequesToRemove.length === 0)}>
-                                {isSubmitting ? 'Registrando...' : 'Confirmar Pago'}
+                                {isSubmitting ? 'Registrando...' : 'Confirmar'}
                             </button>
                         </div>
                     </div>
