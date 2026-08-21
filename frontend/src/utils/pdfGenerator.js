@@ -421,7 +421,7 @@ export const generateReceipt = (saleData, options = { printItems: true }) => {
  * @param {Array}  debtorData.salePayments - [{name, amount}]
  * @param {number} debtorData.globalDiscount
  */
-export const generateDebtorReceipt = (debtorData) => {
+export const generateDebtorReceipt = (debtorData, options = { printItems: true }) => {
     try {
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.width;
@@ -464,113 +464,123 @@ export const generateDebtorReceipt = (debtorData) => {
         doc.setFont(undefined, 'normal');
         doc.setTextColor(0);
 
-        const totalUnidades = debtorData.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
-        doc.setFont(undefined, 'bold');
-        doc.text(`Total de Artículos: ${totalUnidades}`, 14, 62);
-        doc.setFont(undefined, 'normal');
+        if (options.printItems) {
+            const totalUnidades = debtorData.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
+            doc.setFont(undefined, 'bold');
+            doc.text(`Total de Artículos: ${totalUnidades}`, 14, 62);
+            doc.setFont(undefined, 'normal');
+        } else {
+            doc.setFontSize(12);
+            doc.setFont(undefined, 'bold');
+            doc.text("RESUMEN DE PAGOS", 14, 62);
+            doc.setFont(undefined, 'normal');
+            doc.lastAutoTable = { finalY: 62 };
+        }
 
-        // --- TABLE 1: ITEMS ---
-        const itemsBody = debtorData.items.map(item => {
-            const unitPrice = item.unitPrice || 0;
-            const discount = item.discount || 0;
-            const finalUnit = Math.max(0, unitPrice - discount);
-            const subtotal = finalUnit * item.quantity;
+        if (options.printItems) {
+            // --- TABLE 1: ITEMS ---
+            const itemsBody = debtorData.items.map(item => {
+                const unitPrice = item.unitPrice || 0;
+                const discount = item.discount || 0;
+                const finalUnit = Math.max(0, unitPrice - discount);
+                const subtotal = finalUnit * item.quantity;
 
-            return [
-                item.codigo || 'N/A',
-                item.descripcion,
-                item.quantity,
-                formatMoney(unitPrice),
-                discount > 0 ? `-${formatMoney(discount)}` : '-',
-                formatMoney(subtotal)
-            ];
-        });
+                return [
+                    item.codigo || 'N/A',
+                    item.descripcion,
+                    item.quantity,
+                    formatMoney(unitPrice),
+                    discount > 0 ? `-${formatMoney(discount)}` : '-',
+                    formatMoney(subtotal)
+                ];
+            });
 
-        autoTable(doc, {
-            startY: 67,
-            head: [['Código', 'Descripción', 'Cant.', 'Precio', 'Desc.', 'Subtotal']],
-            body: itemsBody,
-            theme: 'grid',
-            headStyles: { fillColor: [0, 0, 0], textColor: 255 },
-            columnStyles: {
-                0: { cellWidth: 20 },
-                1: { cellWidth: 'auto' },
-                2: { cellWidth: 10, halign: 'center' },
-                3: { cellWidth: 22, halign: 'right' },
-                4: { cellWidth: 22, halign: 'right' },
-                5: { cellWidth: 28, halign: 'right' }
-            },
-            styles: { fontSize: 8, cellPadding: 1 },
-        });
+            autoTable(doc, {
+                startY: 67,
+                head: [['Código', 'Descripción', 'Cant.', 'Precio', 'Desc.', 'Subtotal']],
+                body: itemsBody,
+                theme: 'grid',
+                headStyles: { fillColor: [0, 0, 0], textColor: 255 },
+                columnStyles: {
+                    0: { cellWidth: 20 },
+                    1: { cellWidth: 'auto' },
+                    2: { cellWidth: 10, halign: 'center' },
+                    3: { cellWidth: 22, halign: 'right' },
+                    4: { cellWidth: 22, halign: 'right' },
+                    5: { cellWidth: 28, halign: 'right' }
+                },
+                styles: { fontSize: 8, cellPadding: 1 },
+            });
 
-        // --- TABLE 2: DISCOUNTS SUMMARY (black header, black font) ---
-        const discountRows = [];
-        const hasReason = debtorData.items.some(item => item.discount > 0 && item.reason);
+            // --- TABLE 2: DISCOUNTS SUMMARY (black header, black font) ---
+            const discountRows = [];
+            const hasReason = debtorData.items.some(item => item.discount > 0 && item.reason);
 
-        debtorData.items.forEach(item => {
-            const discount = item.discount || 0;
-            if (discount > 0) {
+            debtorData.items.forEach(item => {
+                const discount = item.discount || 0;
+                if (discount > 0) {
+                    if (hasReason) {
+                        discountRows.push([
+                            `${item.descripcion} (x${item.quantity})`,
+                            item.reason || '-',
+                            `-${formatMoney(discount * item.quantity)}`
+                        ]);
+                    } else {
+                        discountRows.push([
+                            `${item.descripcion} (x${item.quantity})`,
+                            `-${formatMoney(discount * item.quantity)}`
+                        ]);
+                    }
+                }
+            });
+
+            if (debtorData.globalDiscount > 0) {
                 if (hasReason) {
                     discountRows.push([
-                        `${item.descripcion} (x${item.quantity})`,
-                        item.reason || '-',
-                        `-${formatMoney(discount * item.quantity)}`
+                        'Descuento Global',
+                        '-',
+                        `-${formatMoney(debtorData.globalDiscount)}`
                     ]);
                 } else {
                     discountRows.push([
-                        `${item.descripcion} (x${item.quantity})`,
-                        `-${formatMoney(discount * item.quantity)}`
+                        'Descuento Global',
+                        `-${formatMoney(debtorData.globalDiscount)}`
                     ]);
                 }
             }
-        });
 
-        if (debtorData.globalDiscount > 0) {
-            if (hasReason) {
-                discountRows.push([
-                    'Descuento Global',
-                    '-',
-                    `-${formatMoney(debtorData.globalDiscount)}`
-                ]);
-            } else {
-                discountRows.push([
-                    'Descuento Global',
-                    `-${formatMoney(debtorData.globalDiscount)}`
-                ]);
+            if (debtorData.globalSurcharge > 0) {
+                if (hasReason) {
+                    discountRows.push([
+                        'Recargo Global',
+                        '-',
+                        `${formatMoney(debtorData.globalSurcharge)}`
+                    ]);
+                } else {
+                    discountRows.push([
+                        'Recargo Global',
+                        `${formatMoney(debtorData.globalSurcharge)}`
+                    ]);
+                }
             }
-        }
 
-        if (debtorData.globalSurcharge > 0) {
-            if (hasReason) {
-                discountRows.push([
-                    'Recargo Global',
-                    '-',
-                    `${formatMoney(debtorData.globalSurcharge)}`
-                ]);
-            } else {
-                discountRows.push([
-                    'Recargo Global',
-                    `${formatMoney(debtorData.globalSurcharge)}`
-                ]);
+            if (discountRows.length > 0) {
+                let discountY = doc.lastAutoTable.finalY + 10;
+                const title = (debtorData.globalSurcharge > 0) ? 'Descuento / Recargo' : 'Descuento';
+
+                autoTable(doc, {
+                    startY: discountY,
+                    head: hasReason ? [[title, 'Motivo', 'Monto']] : [[title, 'Monto']],
+                    body: discountRows,
+                    theme: 'grid',
+                    headStyles: { fillColor: [0, 0, 0], textColor: 255 },
+                    columnStyles: hasReason
+                        ? { 0: { cellWidth: 'auto' }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 40, halign: 'right' } }
+                        : { 0: { cellWidth: 'auto' }, 1: { cellWidth: 40, halign: 'right' } },
+                    styles: { fontSize: 8, cellPadding: 1 },
+                });
             }
-        }
-
-        if (discountRows.length > 0) {
-            let discountY = doc.lastAutoTable.finalY + 10;
-            const title = (debtorData.globalSurcharge > 0) ? 'Descuento / Recargo' : 'Descuento';
-
-            autoTable(doc, {
-                startY: discountY,
-                head: hasReason ? [[title, 'Motivo', 'Monto']] : [[title, 'Monto']],
-                body: discountRows,
-                theme: 'grid',
-                headStyles: { fillColor: [0, 0, 0], textColor: 255 },
-                columnStyles: hasReason
-                    ? { 0: { cellWidth: 'auto' }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 40, halign: 'right' } }
-                    : { 0: { cellWidth: 'auto' }, 1: { cellWidth: 40, halign: 'right' } },
-                styles: { fontSize: 8, cellPadding: 1 },
-            });
-        }
+        } // End of options.printItems
 
         // --- TABLE 3: HISTORIAL DE PAGOS (Sale Payments + Debt Payments unified) ---
         let pagosY = doc.lastAutoTable.finalY + 10;

@@ -438,7 +438,7 @@ export default function CobrosYPedidosPage() {
         }
     };
 
-    const handlePrintDebtor = async (item) => {
+    const handlePrintDebtor = async (item, printItems = true) => {
         if (item.tipo !== 'FIADO') {
             toast.error("La impresión de recibo sólo está disponible para deudas (Fiados).");
             return;
@@ -489,7 +489,7 @@ export default function CobrosYPedidosPage() {
                 globalDiscount: sale.descuentoGlobal || 0
             };
 
-            generateDebtorReceipt(debtorData);
+            generateDebtorReceipt(debtorData, { printItems });
             toast.success("Recibo generado.", { id: "print-toast" });
         } catch (error) {
             console.error('Error generating debtor PDF:', error);
@@ -842,12 +842,22 @@ export default function CobrosYPedidosPage() {
                                                         👁️ Detalle
                                                     </button>
                                                     {item.tipo === 'FIADO' && (
-                                                        <button
-                                                            className="btn-print"
-                                                            onClick={() => handlePrintDebtor(item)}
-                                                        >
-                                                            🖨️ Imprimir
-                                                        </button>
+                                                        <div className="action-buttons-row">
+                                                            <button
+                                                                className="btn-print"
+                                                                onClick={() => handlePrintDebtor(item, true)}
+                                                            >
+                                                                🖨️ Imprimir
+                                                            </button>
+                                                            <button
+                                                                className="btn-print"
+                                                                style={{ backgroundColor: '#6366f1', border: '1px solid #4f46e5' }}
+                                                                onClick={() => handlePrintDebtor(item, false)}
+                                                                title="Imprimir resumen de pagos únicamente"
+                                                            >
+                                                                📄 Pagos
+                                                            </button>
+                                                        </div>
                                                     )}
                                                     {item.tipo === 'PEDIDO' && item.estado === 'PENDIENTE' && (
                                                         <div className="action-buttons-row">

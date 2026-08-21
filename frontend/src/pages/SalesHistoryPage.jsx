@@ -214,8 +214,7 @@ export default function SalesHistoryPage() {
                     globalDiscount: Math.max(0, Number(sale.descuentoGlobal) || 0),
                     globalSurcharge: Math.max(0, Number(sale.recargoGlobal) || 0)
                 };
-
-                generateDebtorReceipt(debtorData);
+                generateDebtorReceipt(debtorData, { printItems });
             } else {
                 generateReceipt(receiptData, { printItems });
             }
