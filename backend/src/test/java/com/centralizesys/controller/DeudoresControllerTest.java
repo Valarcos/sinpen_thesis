@@ -89,5 +89,38 @@ class DeudoresControllerTest {
             SecurityContextHolder.clearContext();
         }
     }
+
+    @Test
+    @DisplayName("getByVentaId_Returns200_WhenServiceReturnsDebt")
+    void getByVentaId_Returns200_WhenServiceReturnsDebt() throws Exception {
+        Long ventaId = 1L;
+        DeudaResponse response = new DeudaResponse();
+        response.setId(10L);
+        response.setVentaId(ventaId);
+        response.setEstado("PENDIENTE");
+
+        when(deudoresService.getByVentaId(ventaId)).thenReturn(response);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/deudores/venta/" + ventaId))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.id").value(10L))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.ventaId").value(ventaId))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.estado").value("PENDIENTE"));
+
+        verify(deudoresService).getByVentaId(ventaId);
+    }
+
+    @Test
+    @DisplayName("getByVentaId_Returns404_WhenDebtNotFound")
+    void getByVentaId_Returns404_WhenDebtNotFound() throws Exception {
+        Long ventaId = 999L;
+        when(deudoresService.getByVentaId(ventaId))
+                .thenThrow(new com.centralizesys.exception.ResourceNotFoundException("Deuda de Venta", ventaId));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/deudores/venta/" + ventaId))
+                .andExpect(status().isNotFound());
+
+        verify(deudoresService).getByVentaId(ventaId);
+    }
 }
 

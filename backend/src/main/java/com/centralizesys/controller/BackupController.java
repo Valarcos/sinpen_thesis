@@ -29,6 +29,7 @@ public class BackupController {
         this.backupService = backupService;
     }
 
+    @com.centralizesys.aspect.Idempotent
     @PostMapping("/create")
     public ResponseEntity<String> triggerManualBackup() {
         Long userId = SecurityUtils.getAuthenticatedUserId();
@@ -75,6 +76,7 @@ public class BackupController {
         }
     }
 
+    @com.centralizesys.aspect.Idempotent
     @PostMapping("/restore/{filename}")
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<String> restoreDatabase(@PathVariable String filename) {
@@ -87,6 +89,10 @@ public class BackupController {
         }
     }
 
+    // TODO: DB Growth Analysis - Address the rapidly increasing size of the database backups.
+    // Investigate if data types are properly optimized and establish an industry-standard policy
+    // on when it is acceptable to permanently delete data versus using logical (soft) deletes.
+    @com.centralizesys.aspect.Idempotent
     @PostMapping(value = "/upload-restore", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<String> restoreFromUpload(
@@ -106,7 +112,14 @@ public class BackupController {
             java.nio.file.Path tempPath = java.nio.file.Files.createTempFile(tempDir, "restore_", ".sql");
             File tempFile = tempPath.toFile();
             file.transferTo(tempFile);
-            backupService.restoreDatabase(tempFile);
+
+            try {
+                backupService.restoreDatabase(tempFile);
+            } finally {
+                if (tempFile.exists() && !tempFile.delete()) {
+                    System.err.println("Failed to delete temp file: " + tempFile.getAbsolutePath());
+                }
+            }
             return ResponseEntity.ok("Restauración iniciada con éxito. El servidor se reiniciará en 1 segundo.");
         } catch (Exception e) {
             throw new InfrastructureException("Fallo en la restauración: " + e.getMessage(), e);

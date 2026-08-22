@@ -31,4 +31,9 @@ public class ClienteService {
     public java.util.Optional<ClienteResponse> findByNombre(String nombre) {
         return clienteRepository.findByNombre(nombre);
     }
+
+    public void updateClienteNombre(Long id, String nuevoNombre, Long usuarioId) {
+        String safeNombre = com.centralizesys.util.StringUtil.safeTruncate(nuevoNombre, 255);
+        clienteRepository.updateNombre(id, safeNombre, usuarioId);
+    }
 }

@@ -32,6 +32,7 @@ export default function SalesHistoryPage() {
     const isMounted = React.useRef(true);
 
     useEffect(() => {
+        isMounted.current = true;
         return () => { isMounted.current = false; };
     }, []);
 

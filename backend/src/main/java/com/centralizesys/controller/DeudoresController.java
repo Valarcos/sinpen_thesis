@@ -32,6 +32,11 @@ public class DeudoresController {
         return ResponseEntity.ok(service.getById(id));
     }
 
+    @GetMapping("/venta/{ventaId}")
+    public ResponseEntity<DeudaResponse> getByVentaId(@PathVariable Long ventaId) {
+        return ResponseEntity.ok(service.getByVentaId(ventaId));
+    }
+
     @PostMapping("/{id}/pagar")
     public ResponseEntity<DeudaResponse> pagarDeuda(
             @PathVariable Long id,

@@ -14,11 +14,19 @@ public class DeudaResponse {
     private Long ventaId;
     private String clienteNombre;
     private Long clienteId;
-    private Double montoDeuda; // The current remaining balance
+    private Double montoDeuda = 0.0; // The current remaining balance
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime fechaDeuda; // dd-mm-YYYY
     private String estado; // PENDIENTE, PARCIAL, PAGADO
-    private Double montoOriginal; // NEW: From ventas.total_venta
+    private Double montoOriginal = 0.0; // NEW: From ventas.total_venta
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime fechaUltimoPago; // NEW: From deudores.fecha_pago
+
+    public void setMontoDeuda(Double montoDeuda) {
+        this.montoDeuda = (montoDeuda != null) ? montoDeuda : 0.0;
+    }
+
+    public void setMontoOriginal(Double montoOriginal) {
+        this.montoOriginal = (montoOriginal != null) ? montoOriginal : 0.0;
+    }
 }

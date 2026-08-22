@@ -28,33 +28,44 @@ export default function PartialReturnModal({ isOpen, sale, onClose, onSuccess })
     const [submitting, setSubmitting] = useState(false);
     const [showFullReturnWarning, setShowFullReturnWarning] = useState(false);
 
+    const isMounted = useRef(true);
     const modalRef = useRef(null);
 
-    // --- Load sale details when modal opens ---
-    useEffect(() => {
-        if (!isOpen || !sale?.id) return;
-
-        setLoading(true);
-        setShowFullReturnWarning(false);
-        setObservaciones('');
-        setTipoReembolso('SALDO');
+    const fetchSaleDetails = () => {
+        if (!sale?.id) return;
+        if (isMounted.current) {
+            setLoading(true);
+            setShowFullReturnWarning(false);
+            setObservaciones('');
+            setTipoReembolso('SALDO');
+        }
 
         api.get(`/ventas/${sale.id}`)
             .then(res => {
-                // Only show non-annulled line items that still have returnable quantity
+                if (!isMounted.current) return;
                 const activeDetails = (res.data.items || []).filter(d => !d.anulado);
                 setDetails(activeDetails);
-                // Initialise each quantity entry to 0
                 const initQty = {};
                 activeDetails.forEach(d => { initQty[d.id] = 0; });
                 setQuantities(initQty);
             })
             .catch(err => {
                 console.error('Error loading sale details for return:', err);
-                toast.error('Error al cargar los detalles de la venta.');
-                onClose();
+                // global interceptor handles toast
+                if (isMounted.current) onClose();
             })
-            .finally(() => setLoading(false));
+            .finally(() => {
+                if (isMounted.current) setLoading(false);
+            });
+    };
+
+    // --- Load sale details when modal opens ---
+    useEffect(() => {
+        isMounted.current = true;
+        if (isOpen && sale?.id) {
+            fetchSaleDetails();
+        }
+        return () => { isMounted.current = false; };
     }, [isOpen, sale?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Focus trap
@@ -89,19 +100,19 @@ export default function PartialReturnModal({ isOpen, sale, onClose, onSuccess })
     };
 
     // Items that have at least 1 returnable unit
-    const returnableDetails = details.filter(d => netRemaining(d) > 0);
+    const returnableDetails = (details || []).filter(d => netRemaining(d) > 0);
 
     // Items the user has actually selected (qty > 0)
-    const selectedItems = returnableDetails.filter(d => (quantities[d.id] || 0) > 0);
+    const selectedItems = (returnableDetails || []).filter(d => (quantities[d.id] || 0) > 0);
 
     // Estimated refund total
-    const estimatedRefund = selectedItems.reduce((sum, d) => {
+    const estimatedRefund = (selectedItems || []).reduce((sum, d) => {
         return sum + (d.precioUnitario || 0) * (quantities[d.id] || 0);
     }, 0);
 
     // Total net remaining units across all items
-    const totalNetRemaining  = returnableDetails.reduce((s, d) => s + netRemaining(d), 0);
-    const totalReturnSelected = selectedItems.reduce((s, d) => s + (quantities[d.id] || 0), 0);
+    const totalNetRemaining  = (returnableDetails || []).reduce((s, d) => s + netRemaining(d), 0);
+    const totalReturnSelected = (selectedItems || []).reduce((s, d) => s + (quantities[d.id] || 0), 0);
     const isFullReturn = totalReturnSelected > 0 && totalReturnSelected >= totalNetRemaining;
 
     const hasSelectedItems = selectedItems.length > 0;
@@ -119,6 +130,7 @@ export default function PartialReturnModal({ isOpen, sale, onClose, onSuccess })
     };
 
     const handleConfirmClick = () => {
+        if (submitting) return;
         if (!hasSelectedItems) {
             toast.error('Seleccione al menos un producto a devolver.');
             return;
@@ -131,9 +143,9 @@ export default function PartialReturnModal({ isOpen, sale, onClose, onSuccess })
     };
 
     const submitReturn = async () => {
-        setSubmitting(true);
         try {
-            const items = selectedItems.map(d => ({
+            if (isMounted.current) setSubmitting(true);
+            const items = (selectedItems || []).map(d => ({
                 detalleVentaId: d.id,
                 cantidadDevuelta: quantities[d.id]
             }));
@@ -145,14 +157,17 @@ export default function PartialReturnModal({ isOpen, sale, onClose, onSuccess })
             });
 
             toast.success('Devolución registrada exitosamente.');
-            onSuccess();
-            onClose();
+            if (onSuccess) onSuccess();
+            if (isMounted.current) onClose();
         } catch (err) {
             console.error('Error submitting return:', err);
-            toast.error(err.response?.data?.message || 'Error al registrar la devolución.');
+            // Vector 2: force refetch on failure
+            fetchSaleDetails();
         } finally {
-            setSubmitting(false);
-            setShowFullReturnWarning(false);
+            if (isMounted.current) {
+                setSubmitting(false);
+                setShowFullReturnWarning(false);
+            }
         }
     };
 
@@ -256,7 +271,7 @@ export default function PartialReturnModal({ isOpen, sale, onClose, onSuccess })
                         </p>
                     ) : (
                         <div className="pm-list">
-                            {returnableDetails.map(detail => {
+                            {(returnableDetails || []).map(detail => {
                                 const remaining = netRemaining(detail);
                                 const qty = quantities[detail.id] || 0;
                                 return (
@@ -335,6 +350,7 @@ export default function PartialReturnModal({ isOpen, sale, onClose, onSuccess })
                             value={observaciones}
                             onChange={e => setObservaciones(e.target.value)}
                             placeholder="Motivo de la devolución..."
+                            maxLength={255}
                             rows={2}
                             style={{ width: '100%', padding: '0.5rem', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: '0.9rem', resize: 'vertical', boxSizing: 'border-box' }}
                         />

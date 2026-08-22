@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS ventas (
                                       cliente_nombre TEXT,
                                       total_venta REAL NOT NULL,
                                       descuento_global REAL DEFAULT 0,
+                                      recargo_global REAL DEFAULT 0,
+                                      saldo_generado REAL NOT NULL DEFAULT 0,
                                       tipo_venta TEXT,
                                       estado TEXT DEFAULT 'ACTIVA' CHECK(estado IN ('ACTIVA', 'ANULADA', 'PENDIENTE', 'CANCELADA_PENDIENTE')),
                                       usuario_id INTEGER,
@@ -435,8 +437,11 @@ CREATE TABLE IF NOT EXISTS alertas_cheques (
                                                fecha_cobro DATE NOT NULL,
                                                estado TEXT DEFAULT 'PENDIENTE' CHECK(estado IN ('PENDIENTE', 'COBRADO', 'ANULADA')),
                                                pago_venta_id INTEGER,
+                                               tipo_origen TEXT DEFAULT 'VENTA' CHECK(tipo_origen IN ('VENTA', 'DEUDA_FIADO')),
+                                               pago_deuda_id INTEGER,
                                                FOREIGN KEY (venta_id) REFERENCES ventas(id),
-                                               FOREIGN KEY (pago_venta_id) REFERENCES pagos_venta(id) ON DELETE SET NULL
+                                               FOREIGN KEY (pago_venta_id) REFERENCES pagos_venta(id) ON DELETE SET NULL,
+                                               FOREIGN KEY (pago_deuda_id) REFERENCES pagos_deuda(id) ON DELETE SET NULL
 );;
 
 -- ==========================================
@@ -556,5 +561,4 @@ CREATE INDEX IF NOT EXISTS idx_devoluciones_detalle_venta_id ON devoluciones_ven
 DROP TRIGGER IF EXISTS trg_update_devolucion_timestamp ON devoluciones_venta;;
 CREATE TRIGGER trg_update_devolucion_timestamp
     BEFORE UPDATE ON devoluciones_venta
-    FOR EACH ROW
 EXECUTE FUNCTION fn_update_devolucion_timestamp();;

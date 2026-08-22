@@ -19,9 +19,24 @@ public class Product {
     private Long id;
     private String codigo;
     private String descripcion;
-    private Double precioCosto;
-    private Double precioMayorista;
-    private Double precioMinorista;
+    @Builder.Default
+    private Double precioCosto = 0.0;
+    @Builder.Default
+    private Double precioMayorista = 0.0;
+    @Builder.Default
+    private Double precioMinorista = 0.0;
+
+    public void setPrecioCosto(Double precioCosto) {
+        this.precioCosto = (precioCosto != null) ? precioCosto : 0.0;
+    }
+
+    public void setPrecioMayorista(Double precioMayorista) {
+        this.precioMayorista = (precioMayorista != null) ? precioMayorista : 0.0;
+    }
+
+    public void setPrecioMinorista(Double precioMinorista) {
+        this.precioMinorista = (precioMinorista != null) ? precioMinorista : 0.0;
+    }
 
     // Read-Only field. Logic handled by DB Triggers.
     // Lombok's @Setter on the class generates setters for everything,

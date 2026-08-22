@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBlocker } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -17,6 +17,7 @@ export default function InventarioPage() {
     const [totalElements, setTotalElements] = useState(0);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const isMounted = useRef(true);
 
     // ... modals state ...
     const [showProductForm, setShowProductForm] = useState(false);
@@ -46,7 +47,7 @@ export default function InventarioPage() {
 
     const fetchProducts = useCallback(async (currentPage = 0, isBackground = false) => {
         try {
-            if (!isBackground) {
+            if (!isBackground && isMounted.current) {
                 setLoading(true);
             }
 
@@ -66,6 +67,8 @@ export default function InventarioPage() {
 
             const response = await api.get('/productos', { params });
 
+            if (!isMounted.current) return;
+
             // Unified Response: Always PageResponse
             setProducts(response.data.content);
             setTotalPages(response.data.totalPages);
@@ -80,11 +83,9 @@ export default function InventarioPage() {
 
         } catch (error) {
             console.error('Error fetching products:', error);
-            if (!isBackground) {
-                toast.error('Error al cargar productos');
-            }
+            // Error handled by global api interceptor
         } finally {
-            if (!isBackground) {
+            if (!isBackground && isMounted.current) {
                 setLoading(false);
             }
         }
@@ -92,8 +93,10 @@ export default function InventarioPage() {
 
     // Initial Load
     useEffect(() => {
+        isMounted.current = true;
         setPage(0); // Reset page on simple reload? Or keep? Reset seems safer.
         fetchProducts(0, false);
+        return () => { isMounted.current = false; };
     }, [fetchProducts]); // Dependencies: fetchProducts depends on 'searchQuery'
 
     // Auto-refresh interval
@@ -155,10 +158,12 @@ export default function InventarioPage() {
             fetchProducts(page);
         } catch (error) {
             console.error('Error deleting product:', error);
-            const message = error.response?.data?.message || 'Error al eliminar producto';
-            toast.error(message);
+            const message = error.response?.data?.message;
+            if (message) toast.error(message);
+            // Vector 2: Force re-fetch on failure to resync state
+            fetchProducts(page);
         } finally {
-            setIsDeleting(false);
+            if (isMounted.current) setIsDeleting(false);
         }
     };
 
@@ -285,7 +290,7 @@ export default function InventarioPage() {
                             </tr>
                             </thead>
                             <tbody>
-                            {products.map((product) => (
+                            {(products || []).map((product) => (
                                 <tr key={product.id} className={getVariantAccentClass(product, products)}>
                                     <td data-label="Código">{product.codigo || '-'}</td>
                                     <td data-label="Descripción" className="product-name-cell">{product.descripcion}</td>

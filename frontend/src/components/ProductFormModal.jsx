@@ -12,6 +12,7 @@ import './ProductFormModal.css';
 export default function ProductFormModal({ product, isVariant = false, isPurchaseContext = false, initialCost, onSuccess, onCancel }) {
     const isEditing = !!product && !isVariant;
     const firstInputRef = useRef(null);
+    const isMounted = useRef(true);
 
     // Ubicaciones (locations) for dropdown
     const [ubicaciones, setUbicaciones] = useState([]);
@@ -40,11 +41,13 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
 
     // Load ubicaciones on mount (only for new products AND if NOT in purchase context)
     useEffect(() => {
+        isMounted.current = true;
         if (!isEditing && !isPurchaseContext) {
             loadUbicaciones();
         } else {
-            setLoadingUbicaciones(false);
+            if (isMounted.current) setLoadingUbicaciones(false);
         }
+        return () => { isMounted.current = false; };
     }, [isEditing, isPurchaseContext]);
 
     // Focus first input on mount
@@ -55,6 +58,7 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
     const loadUbicaciones = async () => {
         try {
             const response = await api.get('/locations');
+            if (!isMounted.current) return;
             setUbicaciones(response.data);
             // Auto-select first location if only one exists
             if (response.data.length === 1) {
@@ -62,9 +66,9 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
             }
         } catch (error) {
             console.error('Error loading ubicaciones:', error);
-            if (!isEditing) toast.error('Error al cargar ubicaciones');
+            // Error handled by global api interceptor
         } finally {
-            setLoadingUbicaciones(false);
+            if (isMounted.current) setLoadingUbicaciones(false);
         }
     };
 
@@ -85,6 +89,7 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
         try {
             const res = await api.get(`/productos/familia/${encodeURIComponent(code)}`);
             const family = res.data;
+            if (!isMounted.current) return;
 
             if (family && family.length > 0) {
                 const newest = family[family.length - 1];
@@ -101,11 +106,13 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
             setCodeEvaluated(true);
         } catch (err) {
             console.error('Error looking up product family:', err);
-            toast.error('Error al verificar el código. Complete los campos manualmente.');
-            setCodeEvaluated(true);
-            setIsExistingFamily(false);
+            // Error handled by global api interceptor
+            if (isMounted.current) {
+                setCodeEvaluated(true);
+                setIsExistingFamily(false);
+            }
         } finally {
-            setIsLoadingCode(false);
+            if (isMounted.current) setIsLoadingCode(false);
         }
     };
 
@@ -179,6 +186,7 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        if (saving) return;
         if (!validate()) {
             toast.error('Por favor, corrija los errores del formulario.');
             return;
@@ -212,12 +220,12 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
                 toast.success('Producto creado correctamente');
             }
 
-            onSuccess(savedProduct);
+            if (isMounted.current) onSuccess(savedProduct);
         } catch (error) {
             console.error('Error saving product:', error);
             // The global api.js interceptor automatically displays toast.error for API rejections
         } finally {
-            setSaving(false);
+            if (isMounted.current) setSaving(false);
         }
     };
 
@@ -301,6 +309,7 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
                                     name="precioCosto"
                                     type="text"
                                     inputMode="decimal"
+                                    min="0"
                                     value={formData.precioCosto}
                                     onChange={handleChange}
                                     onKeyDown={blockNonNumericKeys}
@@ -324,6 +333,7 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
                                     name="precioMayorista"
                                     type="text"
                                     inputMode="decimal"
+                                    min="0"
                                     value={formData.precioMayorista}
                                     onChange={handleChange}
                                     onKeyDown={blockNonNumericKeys}
@@ -346,6 +356,7 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
                                     name="precioMinorista"
                                     type="text"
                                     inputMode="decimal"
+                                    min="0"
                                     value={formData.precioMinorista}
                                     onChange={handleChange}
                                     onKeyDown={blockNonNumericKeys}
@@ -388,7 +399,7 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
                                                 tabIndex="6"
                                             >
                                                 <option value="">-- Seleccione ubicación --</option>
-                                                {ubicaciones.map(ub => (
+                                                {(ubicaciones || []).filter(u => u.activo !== false).map(ub => (
                                                     <option key={ub.id} value={ub.id}>
                                                         {ub.nombre}
                                                     </option>
@@ -409,6 +420,7 @@ export default function ProductFormModal({ product, isVariant = false, isPurchas
                                             name="cantidad"
                                             type="text"
                                             inputMode="numeric"
+                                            min="1"
                                             value={formData.cantidad}
                                             onChange={handleChange}
                                             onKeyDown={blockNonIntegerKeys}

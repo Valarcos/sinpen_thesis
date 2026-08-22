@@ -8,7 +8,11 @@ import java.time.LocalDate;
 @Data
 @NoArgsConstructor
 public class PagoDeudaRequest {
-    private Double montoPago; // How much are they paying today?
+    private Double montoPago = 0.0; // How much are they paying today?
+
+    public void setMontoPago(Double montoPago) {
+        this.montoPago = (montoPago != null) ? montoPago : 0.0;
+    }
     private Long metodoPagoId; // Payment method selected
     private String observaciones; // Optional notes
     private Long usuarioId; // The user recording the payment

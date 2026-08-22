@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { formatDate } from '../utils/format';
 import toast from 'react-hot-toast';
@@ -25,17 +25,21 @@ export default function CobrarChequesModal({ isOpen, onClose, onSuccess, ventaIt
     // Per-installment state: maps cheque id → { metodoPagoId, isSubmitting }
     const [cobrandoId, setCobrandoId] = useState(null);
     const [selectedMethods, setSelectedMethods] = useState({});
+    const isMounted = useRef(true);
 
     useEffect(() => {
+        isMounted.current = true;
         if (isOpen && ventaItem?.venta_id) {
             fetchInstallments();
         }
+        return () => { isMounted.current = false; };
     }, [isOpen, ventaItem]);
 
     const fetchInstallments = async () => {
         setLoading(true);
         try {
             const res = await api.get(`/alertas/cheques/venta/${ventaItem.venta_id}`);
+            if (!isMounted.current) return;
             setInstallments(res.data);
             // Pre-initialize method selectors
             const methods = {};
@@ -45,9 +49,9 @@ export default function CobrarChequesModal({ isOpen, onClose, onSuccess, ventaIt
             setSelectedMethods(methods);
         } catch (err) {
             console.error('Error loading installments:', err);
-            toast.error('Error al cargar cuotas del cheque.');
+            // Error handled by global api interceptor
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     };
 
@@ -67,13 +71,13 @@ export default function CobrarChequesModal({ isOpen, onClose, onSuccess, ventaIt
             // Refresh installments list
             await fetchInstallments();
             // Notify parent to refresh the table
-            onSuccess?.();
+            if (onSuccess) onSuccess();
         } catch (err) {
             console.error('Error al cobrar cuota:', err);
-            const msg = err.response?.data?.message || 'Error al cobrar la cuota.';
-            toast.error(msg);
+            // Vector 2: Force re-fetch on failure
+            await fetchInstallments();
         } finally {
-            setCobrandoId(null);
+            if (isMounted.current) setCobrandoId(null);
         }
     };
 
@@ -84,21 +88,21 @@ export default function CobrarChequesModal({ isOpen, onClose, onSuccess, ventaIt
             await api.post(`/alertas/cheques/${cheque.id}/cancelar-cobro`);
             toast.success("Cobro anulado exitosamente.");
             await fetchInstallments();
-            onSuccess?.();
+            if (onSuccess) onSuccess();
         } catch (err) {
             console.error('Error al anular cobro:', err);
-            const msg = err.response?.data?.message || 'Error al anular el cobro.';
-            toast.error(msg);
+            // Vector 2: Force re-fetch on failure
+            await fetchInstallments();
         } finally {
-            setCobrandoId(null);
+            if (isMounted.current) setCobrandoId(null);
         }
     };
 
-    const pendingTotal = installments
+    const pendingTotal = (installments || [])
         .filter(i => i.estado === 'PENDIENTE')
         .reduce((sum, i) => sum + i.monto, 0);
 
-    const cobradoTotal = installments
+    const cobradoTotal = (installments || [])
         .filter(i => i.estado === 'COBRADO')
         .reduce((sum, i) => sum + i.monto, 0);
 
@@ -138,10 +142,10 @@ export default function CobrarChequesModal({ isOpen, onClose, onSuccess, ventaIt
                 <div className="ccm-installments">
                     {loading ? (
                         <div className="ccm-loading">Cargando cuotas...</div>
-                    ) : installments.length === 0 ? (
+                    ) : (installments || []).length === 0 ? (
                         <div className="ccm-empty">No se encontraron cuotas para esta venta.</div>
                     ) : (
-                        installments.map((cheque) => {
+                        (installments || []).map((cheque) => {
                             const isPending = cheque.estado === 'PENDIENTE';
                             const isOverdue = isPending && new Date(cheque.fechaCobro) <= new Date();
                             const isCobrandoThis = cobrandoId === cheque.id;
@@ -179,10 +183,10 @@ export default function CobrarChequesModal({ isOpen, onClose, onSuccess, ventaIt
                                                 aria-label={`Método de pago para cuota del ${formatDate(cheque.fechaCobro)}`}
                                             >
                                                 <option value="">Método de pago...</option>
-                                                {paymentMethods
+                                                {(paymentMethods || [])
                                                     .filter(m => {
                                                         const desc = (m.descripcion || '').toLowerCase();
-                                                        return !desc.includes('cheque') && !desc.includes('e-check');
+                                                        return !desc.includes('cheque') && !desc.includes('e-check') && m.activo !== false;
                                                     })
                                                     .map(m => (
                                                         <option key={m.id} value={m.id}>{m.descripcion}</option>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import './StockWarningModal.css';
@@ -13,17 +13,20 @@ function WarningListItem({ product, onStockCorrected }) {
     const [selectedLocation, setSelectedLocation] = useState('');
     const [isCorrecting, setIsCorrecting] = useState(false);
     const [loadingLocs, setLoadingLocs] = useState(true);
+    const isMounted = useRef(true);
 
     // Calculate the exact missing amount — the system does the math for the user.
     const missingQty = Math.max(0, product.cartQuantity - product.cantidadStock);
 
     useEffect(() => {
+        isMounted.current = true;
         // Defensive: guard against invalid productId
         if (!product?.id) return;
 
         setLoadingLocs(true);
         api.get(`/stock/producto/${product.id}`)
             .then(res => {
+                if (!isMounted.current) return;
                 const locs = res.data || [];
                 setLocations(locs);
                 // Defensive: fallback to primary location (1) if no locations exist yet
@@ -36,11 +39,15 @@ function WarningListItem({ product, onStockCorrected }) {
             })
             .catch(err => {
                 console.error(`Error fetching locations for product ${product.id}`, err);
-                toast.error('Error al cargar ubicaciones');
+                // Error handled by global api interceptor
                 // Fallback: allow correction against primary location
-                setSelectedLocation('1');
+                if (isMounted.current) setSelectedLocation('1');
             })
-            .finally(() => setLoadingLocs(false));
+            .finally(() => {
+                if (isMounted.current) setLoadingLocs(false);
+            });
+
+        return () => { isMounted.current = false; };
     }, [product.id]);
 
     const handleAutoCorrect = async () => {
@@ -63,13 +70,16 @@ function WarningListItem({ product, onStockCorrected }) {
             });
             toast.success(`Stock de "${product.descripcion}" corregido (+${missingQty})`);
             // Notify parent with the specific productId so VentaPage can do a targeted refresh
-            if (onStockCorrected) onStockCorrected(product.id);
+            if (isMounted.current && onStockCorrected) onStockCorrected(product.id);
         } catch (error) {
             console.error('Error auto-correcting stock', error);
-            const msg = error.response?.data?.message || 'Error al corregir stock';
-            toast.error(msg);
+            // Vector 2: Force re-fetch on failure to resync state
+            api.get(`/stock/producto/${product.id}`).then(res => {
+                if (isMounted.current) setLocations(res.data || []);
+            });
+            // Error handled by global api interceptor
         } finally {
-            setIsCorrecting(false);
+            if (isMounted.current) setIsCorrecting(false);
         }
     };
 
@@ -92,8 +102,8 @@ function WarningListItem({ product, onStockCorrected }) {
                             className="warning-location-select"
                             disabled={isCorrecting}
                         >
-                            {locations.length > 0 ? (
-                                locations.map(loc => (
+                            {(locations || []).length > 0 ? (
+                                (locations || []).map(loc => (
                                     <option key={loc.id} value={String(loc.ubicacionId)}>
                                         {loc.nombreUbicacion || `Ubicación ${loc.ubicacionId}`} (Actual: {loc.cantidad})
                                     </option>
@@ -128,7 +138,7 @@ export default function StockWarningModal({ affectedProducts, onClose, onContinu
 
                 <p>Los siguientes productos tienen stock insuficiente:</p>
                 <ul className="warning-list">
-                    {affectedProducts.map(p => (
+                    {(affectedProducts || []).map(p => (
                         <WarningListItem
                             key={p.id}
                             product={p}

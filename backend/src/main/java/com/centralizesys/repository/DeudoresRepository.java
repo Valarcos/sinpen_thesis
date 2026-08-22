@@ -51,7 +51,7 @@ public class DeudoresRepository {
                 .addValue("clienteNombre", clienteNombre)
                 .addValue("clienteId", clienteId)
                 .addValue("montoDeuda", montoDeuda)
-                .addValue("fechaDeuda", LocalDateTime.now(java.time.ZoneId.systemDefault()))
+                .addValue("fechaDeuda", LocalDateTime.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires")))
                 .addValue("estado", DebtStatus.PENDIENTE.name());
         namedJdbcTemplate.update(sql, params);
     }
@@ -126,39 +126,72 @@ public class DeudoresRepository {
     }
 
     /**
-     * Atomically deducts a payment from the debt and calculates the new state in the DB.
-     * Prevents read-then-write race conditions when multiple payments/returns hit simultaneously.
+     * ARCHITECTURAL NOTE: Atomic Ledger Transition
+     * --------------------------------------------
+     * This method calculates the new debt balance and state (PENDIENTE/PARCIAL/PAGADO)
+     * DIRECTLY in the database using an atomic SQL UPDATE, rather than in Java.
+     *
+     * WHY THIS IS HERE:
+     * If multiple cashiers attempt to pay the same debt simultaneously, calculating
+     * the balance in Java (Read-Modify-Write) causes race conditions and double-payments.
+     * By doing it here, PostgreSQL's transaction engine guarantees absolute ACID isolation.
+     *
+     * MAINTENANCE WARNING:
+     * - Do NOT move this calculation back to the Java Service layer without implementing
+     *   strict distributed locking.
+     * - The `<= 0.01` floating point epsilon bounds are critically required to prevent
+     *   PostgreSQL 'deudores_estado_check' constraint violations caused by numeric drift.
      */
-    public int deductDeudaAtomic(Long id, Double appliedAmount, String nuevoEstado) {
+    public int deductDeudaAtomic(Long id, Double appliedAmount, Double montoOriginal) {
         String sql = """
             UPDATE deudores 
-            SET monto_deuda = monto_deuda - :appliedAmount,
-                estado = :nuevoEstado,
+            SET monto_deuda = CASE 
+                                 WHEN (monto_deuda - :appliedAmount) <= 0.01 THEN 0
+                                 ELSE (monto_deuda - :appliedAmount)
+                              END,
+                estado = CASE 
+                            WHEN (monto_deuda - :appliedAmount) <= 0.01 THEN 'PAGADO'
+                            WHEN (monto_deuda - :appliedAmount) >= (:montoOriginal - 0.01) THEN 'PENDIENTE'
+                            ELSE 'PARCIAL'
+                         END,
                 fecha_pago = CURRENT_TIMESTAMP
             WHERE id = :id AND monto_deuda >= (:appliedAmount - 0.01)
         """;
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", id)
                 .addValue("appliedAmount", appliedAmount)
-                .addValue(NUEVO_ESTADO, nuevoEstado);
+                .addValue("montoOriginal", montoOriginal);
         return namedJdbcTemplate.update(sql, params);
     }
 
     /**
-     * Atomically adds back to the debt (e.g. when a payment is voided).
+     * ARCHITECTURAL NOTE: Atomic Ledger Transition (Restoration)
+     * ----------------------------------------------------------
+     * Counterpart to deductDeudaAtomic. Used when a payment is voided or a cheque bounces,
+     * requiring the debt to be restored safely without race conditions.
+     *
+     * MAINTENANCE WARNING:
+     * - The `>= (:montoOriginal - 0.01)` epsilon bounds are required to prevent float drift
+     *   from exceeding the original debt total, which would violate DB constraints.
      */
-    public int addDeudaAtomic(Long id, Double addedAmount, String nuevoEstado) {
+    public int addDeudaAtomic(Long id, Double addedAmount, Double montoOriginal) {
         String sql = """
             UPDATE deudores 
-            SET monto_deuda = monto_deuda + :addedAmount,
-                estado = :nuevoEstado,
-                fecha_pago = CURRENT_TIMESTAMP
+            SET monto_deuda = CASE 
+                                 WHEN (monto_deuda + :addedAmount) >= (:montoOriginal - 0.01) THEN :montoOriginal
+                                 ELSE (monto_deuda + :addedAmount)
+                              END,
+                estado = CASE 
+                            WHEN (monto_deuda + :addedAmount) <= 0.01 THEN 'PAGADO'
+                            WHEN (monto_deuda + :addedAmount) >= (:montoOriginal - 0.01) THEN 'PENDIENTE'
+                            ELSE 'PARCIAL'
+                         END
             WHERE id = :id
         """;
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", id)
                 .addValue("addedAmount", addedAmount)
-                .addValue(NUEVO_ESTADO, nuevoEstado);
+                .addValue("montoOriginal", montoOriginal);
         return namedJdbcTemplate.update(sql, params);
     }
 
@@ -189,10 +222,11 @@ public class DeudoresRepository {
                     WHERE d.estado IN ('PENDIENTE', 'PARCIAL')
                     AND d.fecha_deuda <= :thresholdDate
                     ORDER BY d.fecha_deuda ASC
+                    LIMIT 100
                 """;
 
         return namedJdbcTemplate.query(sql,
-                new MapSqlParameterSource("thresholdDate", LocalDateTime.now(java.time.ZoneId.systemDefault()).minusDays(days)),
+                new MapSqlParameterSource("thresholdDate", LocalDateTime.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires")).minusDays(days)),
                 rowMapper);
     }
 
@@ -204,6 +238,7 @@ public class DeudoresRepository {
                     LEFT JOIN usuarios u ON p.usuario_id = u.id
                     WHERE p.deuda_id = :deudaId
                     ORDER BY p.fecha_pago DESC, p.id DESC
+                    LIMIT 100
                 """;
 
         return namedJdbcTemplate.query(sql,
@@ -246,9 +281,9 @@ public class DeudoresRepository {
         return list.stream().findFirst();
     }
 
-    public void updatePagoAnulado(Long pagoId) {
-        String sql = "UPDATE pagos_deuda SET anulado = true WHERE id = :pagoId";
-        namedJdbcTemplate.update(sql, new MapSqlParameterSource("pagoId", pagoId));
+    public int updatePagoAnulado(Long pagoId) {
+        String sql = "UPDATE pagos_deuda SET anulado = true WHERE id = :pagoId AND (anulado = false OR anulado IS NULL)";
+        return namedJdbcTemplate.update(sql, new MapSqlParameterSource("pagoId", pagoId));
     }
 
     public void insertarPagoDeuda(Long deudaId, Long metodoPagoId, Double monto, String observaciones, Long usuarioId) {
@@ -266,5 +301,27 @@ public class DeudoresRepository {
                 .addValue("usuarioId", usuarioId);
 
         namedJdbcTemplate.update(sql, params);
+    }
+
+    public Long insertarPagoDeudaReturningId(Long deudaId, Long metodoPagoId, Double monto, String observaciones, Long usuarioId) {
+        String sql = """
+                    INSERT INTO pagos_deuda (deuda_id, metodo_pago_id, monto, fecha_pago, observaciones, usuario_id)
+                    VALUES (:deudaId, :metodoPagoId, :monto, CURRENT_TIMESTAMP, :observaciones, :usuarioId)
+                """;
+
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue(DEUDA_ID, deudaId)
+                .addValue("metodoPagoId", metodoPagoId)
+                .addValue(MONTO, monto)
+                .addValue(OBSERVACIONES, observaciones)
+                .addValue("usuarioId", usuarioId);
+
+        org.springframework.jdbc.support.KeyHolder keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
+        namedJdbcTemplate.update(sql, params, keyHolder, new String[]{"id"});
+
+        if (keyHolder.getKey() != null) {
+            return keyHolder.getKey().longValue();
+        }
+        return null;
     }
 }

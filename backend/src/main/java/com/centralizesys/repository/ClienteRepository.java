@@ -135,4 +135,12 @@ public class ClienteRepository {
                 .addValue(CLIENTE_ID, clienteId)
                 .addValue("monto", monto));
     }
+
+    public void updateNombre(Long id, String nuevoNombre, Long usuarioId) {
+        String sql = "UPDATE clientes SET nombre = :nombre, actualizado_por = :usuarioId, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = :id";
+        namedJdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("nombre", nuevoNombre)
+                .addValue("usuarioId", usuarioId)
+                .addValue("id", id));
+    }
 }

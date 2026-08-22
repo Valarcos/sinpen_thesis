@@ -24,12 +24,12 @@ public class UnifiedViewService {
                 d.cliente_nombre,
                 v.fecha as fecha_creacion,
                 v.total_venta as monto_total,
-                (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id) as costo_total,
+                (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                 (v.total_venta - d.monto_deuda) as monto_pagado,
                 d.monto_deuda as saldo_restante,
                 d.estado,
                 v.tipo_venta,
-                (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id) as cantidad_productos,
+                (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos,
                 NULL as fecha_cobro,
                 FALSE as has_cheque
             FROM deudores d
@@ -47,12 +47,12 @@ public class UnifiedViewService {
                 v.cliente_nombre,
                 v.fecha as fecha_creacion,
                 v.total_venta as monto_total,
-                (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id) as costo_total,
+                (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                 (SELECT COALESCE(SUM(monto), 0) FROM alertas_cheques WHERE venta_id = v.id AND estado = 'COBRADO') as monto_pagado,
                 (SELECT COALESCE(SUM(monto), 0) FROM alertas_cheques WHERE venta_id = v.id AND estado = 'PENDIENTE') as saldo_restante,
                 'PENDIENTE' as estado,
                 v.tipo_venta,
-                (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id) as cantidad_productos,
+                (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos,
                 (SELECT MIN(fecha_cobro) FROM alertas_cheques WHERE venta_id = v.id AND estado = 'PENDIENTE') as fecha_cobro,
                 FALSE as has_cheque
             FROM alertas_cheques ac
@@ -88,6 +88,7 @@ public class UnifiedViewService {
             WHERE p.estado = 'PENDIENTE'
         
             ORDER BY fecha_creacion DESC
+            LIMIT 300
         """;
 
         return jdbcTemplate.queryForList(sql);

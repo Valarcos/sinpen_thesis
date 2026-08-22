@@ -53,43 +53,33 @@ public class VentaRepository {
                 null, // clienteId: set below with null-safe helper
                 rs.getDouble("total_venta"),
                 rs.getDouble("descuento_global"),
+                getNullableDouble(rs, "recargo_global"),
+                getNullableDouble(rs, "saldo_generado"),
                 rs.getString("tipo_venta"),
                 usuarioId,
                 rs.getString(PARAM_ESTADO),
                 getNullableDouble(rs, "costo_total"),
-                getNullableLong(rs, "cantidad_productos")
+                getNullableLong(rs, "cantidad_productos"),
+                rs.getInt("version")
         );
         v.setClienteId(getNullableLong(rs, "cliente_id"));
         return v;
     };
 
 
-    private Double getNullableDouble(java.sql.ResultSet rs, String columnName) {
-        try {
-            double val = rs.getDouble(columnName);
-            return rs.wasNull() ? null : val;
-        } catch (java.sql.SQLException e) {
-            return null;
-        }
+    private Double getNullableDouble(java.sql.ResultSet rs, String columnName) throws java.sql.SQLException {
+        double val = rs.getDouble(columnName);
+        return rs.wasNull() ? null : val;
     }
 
-    private Long getNullableLong(java.sql.ResultSet rs, String columnName) {
-        try {
-            long val = rs.getLong(columnName);
-            return rs.wasNull() ? null : val;
-        } catch (java.sql.SQLException e) {
-            return null;
-        }
+    private Long getNullableLong(java.sql.ResultSet rs, String columnName) throws java.sql.SQLException {
+        long val = rs.getLong(columnName);
+        return rs.wasNull() ? null : val;
     }
 
     private final RowMapper<DetalleVenta> detalleMapper = (rs, rowNum) -> {
-        boolean anulado;
-        try {
-            anulado = rs.getBoolean(FIELD_ANULADO);
-            if (rs.wasNull()) anulado = false;
-        } catch (java.sql.SQLException e) {
-            anulado = false;
-        }
+        boolean anulado = rs.getBoolean(FIELD_ANULADO);
+        if (rs.wasNull()) anulado = false;
 
         return new DetalleVenta(
                 rs.getLong("id"),
@@ -109,21 +99,11 @@ public class VentaRepository {
     };
 
     private final RowMapper<PagoVenta> pagoMapper = (rs, rowNum) -> {
-        boolean anulado;
-        try {
-            anulado = rs.getBoolean(FIELD_ANULADO);
-            if (rs.wasNull()) anulado = false;
-        } catch (java.sql.SQLException e) {
-            anulado = false;
-        }
+        boolean anulado = rs.getBoolean(FIELD_ANULADO);
+        if (rs.wasNull()) anulado = false;
 
-        Long usuarioIdVal;
-        try {
-            usuarioIdVal = rs.getLong("usuario_id");
-            if (rs.wasNull()) usuarioIdVal = null;
-        } catch (java.sql.SQLException e) {
-            usuarioIdVal = null;
-        }
+        Long usuarioIdVal = rs.getLong("usuario_id");
+        if (rs.wasNull()) usuarioIdVal = null;
 
         return new PagoVenta(
                 rs.getLong("id"),
@@ -139,8 +119,8 @@ public class VentaRepository {
 
     public Long saveVenta(Venta venta) {
         String sql = """
-                    INSERT INTO ventas (fecha, fecha_creacion, cliente_nombre, cliente_id, total_venta, descuento_global, tipo_venta, estado, usuario_id)
-                    VALUES (:fecha, COALESCE(:fechaCreacion, :fecha), :clienteNombre, :clienteId, :totalVenta, :descuentoGlobal, :tipoVenta, COALESCE(:estado, 'ACTIVA'), :usuarioId)
+                    INSERT INTO ventas (fecha, fecha_creacion, cliente_nombre, cliente_id, total_venta, descuento_global, recargo_global, saldo_generado, tipo_venta, estado, usuario_id)
+                    VALUES (:fecha, COALESCE(:fechaCreacion, :fecha), :clienteNombre, :clienteId, :totalVenta, :descuentoGlobal, :recargoGlobal, :saldoGenerado, :tipoVenta, COALESCE(:estado, 'ACTIVA'), :usuarioId)
                 """;
 
         SqlParameterSource params = new BeanPropertySqlParameterSource(venta);
@@ -241,9 +221,14 @@ public class VentaRepository {
 
     // --- READ OPERATIONS ---
 
+    public List<Long> findPendientesOlderThan(java.time.LocalDateTime cutoffDate) {
+        String sql = "SELECT id FROM ventas WHERE estado = 'PENDIENTE' AND fecha < :cutoffDate LIMIT 1000";
+        return namedJdbcTemplate.queryForList(sql, new MapSqlParameterSource("cutoffDate", cutoffDate), Long.class);
+    }
+
     public List<Venta> findVentasByClienteId(Long clienteId) {
         String sql = """
-                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
+                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.recargo_global, v.saldo_generado, v.tipo_venta, v.usuario_id, v.estado, v.version,
                        (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                        (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                 FROM ventas v 
@@ -251,13 +236,14 @@ public class VentaRepository {
                 WHERE v.cliente_id = :clienteId
                   AND v.estado NOT IN ('PENDIENTE', 'CANCELADA_PENDIENTE')
                 ORDER BY v.fecha DESC, v.id DESC
+                LIMIT 100
                 """;
         return namedJdbcTemplate.query(sql, new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("clienteId", clienteId), ventaMapper);
     }
 
     public List<Venta> findAll() {
         String sql = """
-                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
+                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.recargo_global, v.saldo_generado, v.tipo_venta, v.usuario_id, v.estado, v.version,
                        (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                        (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                 FROM ventas v 
@@ -272,7 +258,7 @@ public class VentaRepository {
 
     public Optional<Venta> findById(Long id) {
         String sql = """
-                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
+                SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.recargo_global, v.saldo_generado, v.tipo_venta, v.usuario_id, v.estado, v.version,
                        (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                        (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                 FROM ventas v 
@@ -328,7 +314,7 @@ public class VentaRepository {
 
     public List<Venta> findVentasByFechaBetween(java.time.LocalDateTime startDate, LocalDateTime endDate, Long searchId, int limit, int offset) {
         String sql = """
-                    SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
+                    SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.recargo_global, v.saldo_generado, v.tipo_venta, v.usuario_id, v.estado, v.version,
                            (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                            (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                     FROM ventas v
@@ -356,7 +342,7 @@ public class VentaRepository {
 
     public List<Venta> findVentasPendientesByFechaBetween(java.time.LocalDateTime startDate, LocalDateTime endDate, int limit, int offset) {
         String sql = """
-                    SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.tipo_venta, v.usuario_id, v.estado,
+                    SELECT v.id, v.fecha, v.fecha_creacion, COALESCE(c.nombre, v.cliente_nombre) AS cliente_nombre, v.cliente_id, v.total_venta, v.descuento_global, v.recargo_global, v.saldo_generado, v.tipo_venta, v.usuario_id, v.estado, v.version,
                            (SELECT COALESCE(SUM(costo_snapshot * cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as costo_total,
                            (SELECT COALESCE(SUM(cantidad), 0) FROM detalles_venta WHERE venta_id = v.id AND (anulado = false OR anulado IS NULL)) as cantidad_productos
                     FROM ventas v
@@ -413,6 +399,62 @@ public class VentaRepository {
                 .addValue("id", ventaId));
     }
 
+    public boolean lockVentaForUpdate(Long ventaId, String estadoEsperado) {
+        String sql = "SELECT 1 FROM ventas WHERE id = :id AND estado = :estadoEsperado FOR UPDATE";
+        try {
+            List<Integer> result = namedJdbcTemplate.queryForList(sql, new MapSqlParameterSource()
+                    .addValue("id", ventaId)
+                    .addValue("estadoEsperado", estadoEsperado), Integer.class);
+            return !result.isEmpty();
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            return false;
+        }
+    }
+
+    public boolean lockVentaForReturn(Long ventaId) {
+        String sql = "SELECT 1 FROM ventas WHERE id = :id AND estado IN ('ACTIVA', 'DEVUELTA_PARCIAL') FOR UPDATE";
+        try {
+            List<Integer> result = namedJdbcTemplate.queryForList(sql, new MapSqlParameterSource("id", ventaId), Integer.class);
+            return !result.isEmpty();
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            return false;
+        }
+    }
+
+    /**
+     * ARCHITECTURAL NOTE: Atomic State Transition (Optimistic Locking)
+     * ----------------------------------------------------------------
+     * Used exclusively for Sales Returns. Updates the state only if the sale
+     * is currently ACTIVA or DEVUELTA_PARCIAL.
+     *
+     * WHY THIS IS HERE:
+     * Prevents a race condition where Cashier A attempts a return while Cashier B
+     * is simultaneously voiding the sale. The database acts as the single source of truth.
+     * If 0 rows are affected, it means the state changed concurrently, and the Service
+     * layer must throw a BusinessRuleException.
+     */
+    public int updateEstadoSafeReturn(Long ventaId, String nuevoEstado) {
+        String sql = "UPDATE ventas SET estado = :nuevoEstado WHERE id = :id AND estado IN ('ACTIVA', 'DEVUELTA_PARCIAL')";
+        return namedJdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("nuevoEstado", nuevoEstado)
+                .addValue("id", ventaId));
+    }
+
+    /**
+     * ARCHITECTURAL NOTE: Atomic State Transition (Optimistic Locking)
+     * ----------------------------------------------------------------
+     * Strict optimistic locking. Only updates if the state matches EXACTLY what Java read.
+     * Use this whenever transitioning states (e.g. ACTIVA -> ANULADA) to prevent concurrent
+     * double-voids or illegal transitions. If 0 rows are affected, throw an exception.
+     */
+    public int updateEstadoAtomic(Long ventaId, String nuevoEstado, String estadoEsperado) {
+        String sql = "UPDATE ventas SET estado = :nuevoEstado WHERE id = :id AND estado = :estadoEsperado";
+        return namedJdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("nuevoEstado", nuevoEstado)
+                .addValue("id", ventaId)
+                .addValue("estadoEsperado", estadoEsperado));
+    }
+
     public void updateFechaAndEstado(Long ventaId, LocalDateTime nuevaFecha, String estado) {
         String sql = "UPDATE ventas SET fecha = :fecha, estado = :estado WHERE id = :id";
         namedJdbcTemplate.update(sql, new MapSqlParameterSource()
@@ -421,24 +463,45 @@ public class VentaRepository {
                 .addValue("id", ventaId));
     }
 
+    public int updateFechaAndEstadoAtomic(Long ventaId, LocalDateTime nuevaFecha, String estado, String estadoEsperado) {
+        String sql = "UPDATE ventas SET fecha = :fecha, estado = :estado WHERE id = :id AND estado = :estadoEsperado";
+        return namedJdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("fecha", nuevaFecha)
+                .addValue(PARAM_ESTADO, estado)
+                .addValue("id", ventaId)
+                .addValue("estadoEsperado", estadoEsperado));
+    }
+
     public void marcarDetallesComoAnulados(Long ventaId) {
         String sql = "UPDATE detalles_venta SET anulado = true WHERE venta_id = :id";
         namedJdbcTemplate.update(sql, new MapSqlParameterSource("id", ventaId));
     }
 
-    public void updateTotalesConOCC(Long id, Double nuevoTotalVenta, Double nuevoDescuentoGlobal) {
+    public void updatePendingSaleHeader(Long id, Double nuevoTotalVenta, Double nuevoDescuentoGlobal, Double nuevoRecargoGlobal, Double saldoGenerado, Long clienteId, String clienteNombre, String tipoVenta) {
         String sql = """
                     UPDATE ventas
-                    SET total_venta = :nuevoTotalVenta, descuento_global = :nuevoDescuentoGlobal
+                    SET total_venta = :nuevoTotalVenta, 
+                        descuento_global = :nuevoDescuentoGlobal, 
+                        recargo_global = :nuevoRecargoGlobal,
+                        saldo_generado = :saldoGenerado,
+                        cliente_id = :clienteId,
+                        cliente_nombre = :clienteNombre,
+                        tipo_venta = :tipoVenta,
+                        version = version + 1
                     WHERE id = :id AND estado = 'PENDIENTE'
                 """;
         int rows = namedJdbcTemplate.update(sql, new MapSqlParameterSource()
                 .addValue("nuevoTotalVenta", nuevoTotalVenta)
                 .addValue("nuevoDescuentoGlobal", nuevoDescuentoGlobal)
+                .addValue("nuevoRecargoGlobal", nuevoRecargoGlobal)
+                .addValue("saldoGenerado", saldoGenerado != null ? saldoGenerado : 0.0)
+                .addValue("clienteId", clienteId)
+                .addValue("clienteNombre", clienteNombre)
+                .addValue("tipoVenta", tipoVenta)
                 .addValue("id", id));
 
         if (rows == 0) {
-            throw new BusinessRuleException("No se pudo actualizar los totales (estado modificado concurrentemente).");
+            throw new BusinessRuleException("No se pudo actualizar la cabecera (estado modificado concurrentemente).");
         }
     }
 
@@ -453,7 +516,18 @@ public class VentaRepository {
      * and to calculate the refund value.
      */
     public java.util.Optional<DetalleVenta> findDetalleById(Long detalleId) {
-        String sql = "SELECT * FROM detalles_venta WHERE id = :id";
+        String sql = "SELECT * FROM detalles_venta WHERE id = :id AND (anulado = false OR anulado IS NULL)";
+        List<DetalleVenta> list = namedJdbcTemplate.query(sql,
+                new MapSqlParameterSource("id", detalleId), detalleMapper);
+        return list.stream().findFirst();
+    }
+
+    /**
+     * Finds a single detail row by its primary key with a pessimistic write lock.
+     * Used to prevent race conditions during concurrent returns.
+     */
+    public java.util.Optional<DetalleVenta> findDetalleByIdForUpdate(Long detalleId) {
+        String sql = "SELECT * FROM detalles_venta WHERE id = :id AND (anulado = false OR anulado IS NULL) FOR UPDATE";
         List<DetalleVenta> list = namedJdbcTemplate.query(sql,
                 new MapSqlParameterSource("id", detalleId), detalleMapper);
         return list.stream().findFirst();

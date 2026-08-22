@@ -8,6 +8,10 @@ import java.time.LocalDate;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AlertaChequeRequest {
-    private Double monto;
+    private Double monto = 0.0;
     private LocalDate fechaCobro;
+
+    public void setMonto(Double monto) {
+        this.monto = (monto != null) ? monto : 0.0;
+    }
 }

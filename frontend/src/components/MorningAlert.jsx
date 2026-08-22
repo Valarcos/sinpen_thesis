@@ -36,7 +36,7 @@ export default function MorningAlert({ lowStockProducts, onDismiss }) {
                     </p>
 
                     <ul className="low-stock-list" aria-label="Lista de productos con bajo stock">
-                        {lowStockProducts.map((product) => (
+                        {(lowStockProducts || []).map((product) => (
                             <li key={product.id} className="low-stock-item">
                                 <span className="product-name">{product.nombre}</span>
                                 <span className="product-stock">

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -12,6 +12,7 @@ export default function BackupPage() {
 
     // Reboot UX State
     const [isRebooting, setIsRebooting] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
     const [rebootMessage, setRebootMessage] = useState('');
     const [errorModalMessage, setErrorModalMessage] = useState('');
 
@@ -21,25 +22,29 @@ export default function BackupPage() {
     const [showRestoreWarning, setShowRestoreWarning] = useState(false);
     const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
     const [restoreConfirmationInput, setRestoreConfirmationInput] = useState('');
+    const isMounted = useRef(true);
 
     const navigate = useNavigate();
 
     useEffect(() => {
+        isMounted.current = true;
         setUserRole(localStorage.getItem('userRole') || '');
         fetchBackups();
+        return () => { isMounted.current = false; };
     }, []);
 
     const fetchBackups = async () => {
         try {
-            setLoading(true);
+            if (isMounted.current) setLoading(true);
             const response = await api.get('/backups');
+            if (!isMounted.current) return;
             setBackups(response.data);
             processGrouping(response.data);
         } catch (error) {
             console.error('Error fetching backups:', error);
-            toast.error('Error al cargar la lista de respaldos');
+            // Error handled by global api interceptor
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     };
 
@@ -77,20 +82,26 @@ export default function BackupPage() {
 
         // Convert to array and sort by date desc
         const sortedGroups = Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date));
-        setGroupedBackups(sortedGroups);
+        if (isMounted.current) setGroupedBackups(sortedGroups);
     };
 
     // ... (handleCreateBackup remains same) ...
 
 
     const handleCreateBackup = async () => {
+        if (isCreating) return;
         try {
+            setIsCreating(true);
             await api.post('/backups/create');
             toast.success('Respaldo creado correctamente');
             fetchBackups();
         } catch (error) {
             console.error('Error creating backup:', error);
-            toast.error('Error al crear respaldo');
+            // Error handled by global api interceptor
+            // Vector 2: Force re-fetch on failure to resync state
+            fetchBackups();
+        } finally {
+            if (isMounted.current) setIsCreating(false);
         }
     };
 
@@ -244,8 +255,8 @@ export default function BackupPage() {
                             </label>
                         </>
                     )}
-                    <button onClick={handleCreateBackup} className="button primary">
-                        + Nuevo Respaldo
+                    <button onClick={handleCreateBackup} className="button primary" disabled={isCreating}>
+                        {isCreating ? 'Creando...' : '+ Nuevo Respaldo'}
                     </button>
                     <button onClick={() => navigate('/')} className="button tertiary">
                         Volver
@@ -269,7 +280,7 @@ export default function BackupPage() {
                         </tr>
                         </thead>
                         <tbody>
-                        {groupedBackups.map((group) => (
+                        {(groupedBackups || []).map((group) => (
                             <tr key={group.id}>
                                 <td data-label="Fecha">
                                     <strong>{group.dateFormatted}</strong>

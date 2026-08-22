@@ -7,6 +7,7 @@ import './AppLayout.css';
 export default function AppLayout() {
     const [showLogoutModal, setShowLogoutModal] = useState(false);
     const [showMobileMenu, setShowMobileMenu] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [userName, setUserName] = useState('');
     const [userRole, setUserRole] = useState('');
     const [salesActiveTab, setSalesActiveTab] = useState('catalog');
@@ -21,6 +22,8 @@ export default function AppLayout() {
     }, [location.pathname]);
 
     const handleLogout = async () => {
+        if (isLoggingOut) return;
+        setIsLoggingOut(true);
         try {
             await api.post('/auth/logout');
         } catch (error) {
@@ -78,8 +81,9 @@ export default function AppLayout() {
                             onClick={() => setShowLogoutModal(true)}
                             className="logout-btn"
                             aria-label="Cerrar sesión"
+                            disabled={isLoggingOut}
                         >
-                            Salir
+                            {isLoggingOut ? 'Saliendo...' : 'Salir'}
                         </button>
                     </div>
                 </div>
@@ -93,8 +97,9 @@ export default function AppLayout() {
                         onClick={() => setShowLogoutModal(true)}
                         className="logout-btn-mobile"
                         aria-label="Cerrar sesión"
+                        disabled={isLoggingOut}
                     >
-                        Salir
+                        {isLoggingOut ? 'Saliendo...' : 'Salir'}
                     </button>
                 </div>
             </nav>
@@ -234,6 +239,7 @@ export default function AppLayout() {
                 isOpen={showLogoutModal}
                 onConfirm={handleLogout}
                 onCancel={() => setShowLogoutModal(false)}
+                isLoggingOut={isLoggingOut}
             />
         </div>
     );

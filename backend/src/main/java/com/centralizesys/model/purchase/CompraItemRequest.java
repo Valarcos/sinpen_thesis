@@ -8,6 +8,10 @@ import lombok.NoArgsConstructor;
 public class CompraItemRequest {
     private Long productoId;
     private Long cantidad;
-    private Double costoUnitario;
+    private Double costoUnitario = 0.0;
     private Long ubicacionId;       // We need to know WHERE this stock is entering (e.g., "Depósito" or "Local")
+
+    public void setCostoUnitario(Double costoUnitario) {
+        this.costoUnitario = (costoUnitario != null) ? costoUnitario : 0.0;
+    }
 }

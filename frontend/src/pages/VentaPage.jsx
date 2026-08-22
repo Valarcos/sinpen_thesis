@@ -7,6 +7,7 @@ import StockWarningModal from '../components/StockWarningModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CheckoutChequeModal from '../components/CheckoutChequeModal';
 import ProductConfigModal from '../components/ProductConfigModal';
+import ClientChangeModal from '../components/ClientChangeModal';
 import { generateReceipt } from '../utils/pdfGenerator';
 import { blockNonNumericKeys, blockNonIntegerKeys, sanitizeNumericPaste, sanitizeIntegerPaste, enforceMoneyFormat } from '../utils/numericInput';
 import './VentaPage.css';
@@ -64,14 +65,24 @@ export default function VentaPage() {
         addToCart,
         updateQuantity,
         updateProductData, // Adding just in case existing code relies on it
-        updateItemDiscount, // New
+        updateMultipleProductsData,
+        updateItemDiscount, // Restored
         updateItemSubItems, // New
         globalDiscount, // New
         setGlobalDiscount, // New
+        globalSurcharge,
+        setGlobalSurcharge,
         removeFromCart,
         addPaymentMethod,
         removePaymentMethod,
         totals,
+        initialClientName,
+        initialClientId,
+        cartVersion,
+        deletedPayments,
+        deletedCheques,
+        saldoGenerado,
+        setSaldoGenerado,
         loadCartFromPendingSale
     } = useCart();
 
@@ -117,11 +128,18 @@ export default function VentaPage() {
 
     // Fetch Clients for Autocomplete — uses full ClienteResponse objects so we can
     // read saldo_a_favor for the payment method conditional logic.
+    const isMounted = useRef(true);
+
+    useEffect(() => {
+        isMounted.current = true;
+        return () => { isMounted.current = false; };
+    }, []);
+
     useEffect(() => {
         const fetchClients = async () => {
             try {
                 const res = await api.get('/clientes');
-                setAvailableClients(res.data);
+                if (isMounted.current) setAvailableClients(res.data);
             } catch (err) {
                 console.error("Error loading clients", err);
             }
@@ -135,10 +153,25 @@ export default function VentaPage() {
             const sale = location.state.pendingSaleToEdit;
             setEditingPendingId(sale.id);
             loadCartFromPendingSale(sale, paymentMethods);
+
+            // Fetch actual catalog prices for items in the pending sale
+            // Since pending sales only store a snapshot, we need real prices
+            // for the saleType toggle (Minorista/Mayorista) to correctly recalculate.
+            if (sale.items && sale.items.length > 0) {
+                const itemIds = sale.items.map(i => i.productoId || i.id);
+                Promise.all(itemIds.map(id => api.get(`/productos/${id}`).then(r => r.data).catch(() => null)))
+                    .then(productsList => {
+                        const validProducts = productsList.filter(Boolean);
+                        if (validProducts.length > 0) {
+                            updateMultipleProductsData(validProducts);
+                        }
+                    });
+            }
+
             // Clear state so it doesn't reload on refresh
             navigate(location.pathname, { replace: true, state: {} });
         }
-    }, [location.state, paymentMethods, loadCartFromPendingSale, navigate]);
+    }, [location.state, paymentMethods, loadCartFromPendingSale, updateMultipleProductsData, navigate]);
 
     // Stock Warning State
     const [affectedProducts, setAffectedProducts] = useState([]);
@@ -163,6 +196,8 @@ export default function VentaPage() {
 
     const [configModalOpen, setConfigModalOpen] = useState(false);
     const [configModalItem, setConfigModalItem] = useState(null);
+
+    const [showClientChangeModal, setShowClientChangeModal] = useState(false);
 
     // Req 4: Ref for payment amount input — enables auto-focus + select when a method is chosen.
     const paymentAmountRef = useRef(null);
@@ -333,7 +368,6 @@ export default function VentaPage() {
         }
 
         const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-        const remaining = totals.total - totalPaid;
 
         setShowStockModal(false);
         setShowDebtModal(false);
@@ -351,10 +385,13 @@ export default function VentaPage() {
                 .map(p => ({ monto: p.amount, fechaCobro: p.fechaCobro }));
 
             const saleData = {
+                version: cartVersion,
                 clienteNombre: clientName,
                 clienteId: selectedClientObj?.id || null,
                 tipoVenta: saleType,
                 descuentoGlobal: globalDiscount,
+                recargoGlobal: globalSurcharge,
+                saldoGenerado: saldoGenerado,
                 items: cartItems.flatMap(item => {
                     if (item.subItems && item.subItems.length > 0) {
                         return item.subItems.map(sub => ({
@@ -376,15 +413,26 @@ export default function VentaPage() {
 
             let response;
             if (editingPendingId) {
+                // Deletions
+                for (const pid of deletedPayments) {
+                    await api.delete(`/ventas/${editingPendingId}/pagos/${pid}`);
+                }
+                for (const cid of deletedCheques) {
+                    await api.delete(`/alertas/cheques/${cid}`);
+                }
+
                 // 1. Update Cart
                 await api.put(`/ventas/${editingPendingId}`, saleData);
 
                 // 2. Register NEW payments (only non-persisted ones, filtering by absence of an id)
                 const newPayments = payments.filter(p => !p.id);
                 if (newPayments.length > 0) {
-                    const pagosNew = newPayments
-                        .filter(p => !p.fechaCobro)
-                        .map(p => ({ montoPago: p.amount, metodoPagoId: p.methodId, observaciones: '' }));
+                    const pagosNew = newPayments.map(p => ({
+                        montoPago: p.amount,
+                        metodoPagoId: p.methodId,
+                        fechaCobro: p.fechaCobro || null,
+                        observaciones: ''
+                    }));
                     if (pagosNew.length > 0) {
                         await api.post(`/ventas/${editingPendingId}/pagos`, pagosNew);
                     }
@@ -428,14 +476,15 @@ export default function VentaPage() {
                 }),
                 payments: payments,
                 total: totals.total,
-                globalDiscount: globalDiscount
+                globalDiscount: globalDiscount,
+                globalSurcharge: globalSurcharge
             });
         } catch (error) {
             console.error("Sale Error:", error);
-            const msg = error.response?.data?.message || "Error al procesar la venta";
-            toast.error(msg);
+            const msg = error.response?.data?.message;
+            if (msg) toast.error(msg);
         } finally {
-            setIsSubmitting(false);
+            if (isMounted.current) setIsSubmitting(false);
         }
     };
 
@@ -445,7 +494,7 @@ export default function VentaPage() {
      * (direct path) AND from the StockWarningModal's onContinue callback (via pendingAction='SAVE_PENDING').
      * Kept inside VentaPage to maintain closure over fresh React state.
      */
-    const executeSaveAsPending = async () => {
+    const executeSaveAsPending = async (overrideClientId, overrideClientName) => {
         try {
             setIsSubmitting(true);
             const pagosPayload = payments
@@ -456,11 +505,17 @@ export default function VentaPage() {
                 .filter(p => !!p.fechaCobro)
                 .map(p => ({ monto: p.amount, fechaCobro: p.fechaCobro }));
 
+            const finalClientId = overrideClientId !== undefined ? overrideClientId : (selectedClientObj?.id || null);
+            const finalClientName = overrideClientName !== undefined ? overrideClientName : clientName;
+
             const saleData = {
-                clienteNombre: clientName,
-                clienteId: selectedClientObj?.id || null,
+                version: cartVersion,
+                clienteNombre: finalClientName,
+                clienteId: finalClientId,
                 tipoVenta: saleType,
                 descuentoGlobal: globalDiscount,
+                recargoGlobal: globalSurcharge,
+                saldoGenerado: saldoGenerado,
                 items: cartItems.flatMap(item => {
                     if (item.subItems && item.subItems.length > 0) {
                         return item.subItems.map(sub => ({
@@ -481,17 +536,23 @@ export default function VentaPage() {
             };
 
             if (editingPendingId) {
+                for (const pid of deletedPayments) {
+                    await api.delete(`/ventas/${editingPendingId}/pagos/${pid}`);
+                }
+                for (const cid of deletedCheques) {
+                    await api.delete(`/alertas/cheques/${cid}`);
+                }
+
                 await api.put(`/ventas/${editingPendingId}`, saleData);
                 // Also save new payments if any
                 const newPayments = payments.filter(p => !p.id);
                 if (newPayments.length > 0) {
-                    const pagosNew = newPayments
-                        .filter(p => !p.fechaCobro)
-                        .map(p => ({
-                            montoPago: p.amount,
-                            metodoPagoId: p.methodId,
-                            observaciones: ""
-                        }));
+                    const pagosNew = newPayments.map(p => ({
+                        montoPago: p.amount,
+                        metodoPagoId: p.methodId,
+                        fechaCobro: p.fechaCobro || null,
+                        observaciones: ""
+                    }));
                     if (pagosNew.length > 0) {
                         await api.post(`/ventas/${editingPendingId}/pagos`, pagosNew);
                     }
@@ -506,11 +567,13 @@ export default function VentaPage() {
             }
         } catch (error) {
             console.error("Pending Sale Error:", error);
-            const msg = error.response?.data?.message || "Error al guardar el pedido";
-            toast.error(msg);
+            const msg = error.response?.data?.message;
+            if (msg) toast.error(msg);
         } finally {
-            setIsSubmitting(false);
-            setPendingAction(null); // Always clear intent after execution
+            if (isMounted.current) {
+                setIsSubmitting(false);
+                setPendingAction(null); // Always clear intent after execution
+            }
         }
     };
 
@@ -524,6 +587,11 @@ export default function VentaPage() {
 
         if (!clientName.trim()) {
             toast.error("Debe ingresar el Nombre del Cliente para guardar como pendiente");
+            return;
+        }
+
+        if (editingPendingId && initialClientId && clientName.trim() !== initialClientName.trim()) {
+            setShowClientChangeModal(true);
             return;
         }
 
@@ -572,7 +640,7 @@ export default function VentaPage() {
         const fetchPaymentMethods = async () => {
             try {
                 const res = await api.get('/ventas/metodos-pago');
-                setPaymentMethods(res.data);
+                if (isMounted.current) setPaymentMethods(res.data);
             } catch (error) {
                 console.error("Error fetching payment methods:", error);
                 // toast.error("Error al cargar métodos de pago");
@@ -592,12 +660,14 @@ export default function VentaPage() {
                 if (searchQuery) params.search = searchQuery;
 
                 const response = await api.get('/productos', { params });
-                setProducts(groupProducts(response.data.content || []));
+                if (isMounted.current) {
+                    setProducts(groupProducts(response.data.content || []));
+                }
             } catch (error) {
                 console.error("Error fetching products:", error);
-                toast.error("Error al cargar productos");
+                // toast.error handled by interceptor if any
             } finally {
-                setLoading(false);
+                if (isMounted.current) setLoading(false);
             }
         };
 
@@ -722,13 +792,6 @@ export default function VentaPage() {
             return;
         }
 
-        // HALT LOGIC: If the selected method is a cheque, open the modal to capture cheques
-        if (isSelectedMethodCheque()) {
-            setPendingChequeAmount(amount);
-            setShowChequeModal(true);
-            return;
-        }
-
         // Issue #8: Detect overpayment
         const currentPaid = payments.reduce((sum, p) => sum + p.amount, 0);
         const maxAllowed = Math.max(0, totals.total - currentPaid);
@@ -738,6 +801,12 @@ export default function VentaPage() {
             return;
         }
 
+        // HALT LOGIC: If the selected method is a cheque, open the modal to capture cheques
+        if (isSelectedMethodCheque()) {
+            setPendingChequeAmount(amount);
+            setShowChequeModal(true);
+            return;
+        }
         const method = paymentMethods.find(m => m.id === parseInt(selectedMethodId));
         addPaymentMethod({
             methodId: method.id,
@@ -772,15 +841,43 @@ export default function VentaPage() {
         setShowOverpaidModal(false);
         const method = paymentMethods.find(m => m.id === parseInt(selectedMethodId));
         if (method && overpaidMaxAllowed > 0) {
-            addPaymentMethod({
-                methodId: method.id,
-                name: method.descripcion,
-                amount: overpaidMaxAllowed
-            });
-            setSelectedMethodId('');
-            setPaymentAmount('');
+            if (isSelectedMethodCheque()) {
+                setPendingChequeAmount(overpaidMaxAllowed);
+                setShowChequeModal(true);
+            } else {
+                addPaymentMethod({
+                    methodId: method.id,
+                    name: method.descripcion,
+                    amount: overpaidMaxAllowed
+                });
+                setSelectedMethodId('');
+                setPaymentAmount('');
+            }
         } else {
             setPaymentAmount(overpaidMaxAllowed.toFixed(2));
+        }
+    };
+
+    const handleSaldoAFavor = () => {
+        setShowOverpaidModal(false);
+        const method = paymentMethods.find(m => m.id === parseInt(selectedMethodId));
+        const amount = parseFloat(paymentAmount);
+        if (method && amount > 0) {
+            const extraAmount = amount - overpaidMaxAllowed;
+            setSaldoGenerado(prev => prev + extraAmount);
+
+            if (isSelectedMethodCheque()) {
+                setPendingChequeAmount(amount);
+                setShowChequeModal(true);
+            } else {
+                addPaymentMethod({
+                    methodId: method.id,
+                    name: method.descripcion,
+                    amount: amount
+                });
+                setSelectedMethodId('');
+                setPaymentAmount('');
+            }
         }
     };
 
@@ -808,12 +905,11 @@ export default function VentaPage() {
     const clientHasSaldo = selectedClientObj != null && (selectedClientObj.saldoAFavor ?? 0) > 0;
 
     const availableMethods = paymentMethods.filter(m => {
-        const desc  = (m.descripcion || '').toLowerCase();
+        if (m.activo === false) return false;
         const acronimo = (m.acronimo || '').toUpperCase();
-        const isCheque = desc.includes('cheque') || desc.includes('e-check') || desc.includes('echeck');
         // Hide SALDO method entirely when no matching client with available balance
         if (acronimo === 'SALDO' && !clientHasSaldo) return false;
-        return isCheque || !payments.some(p => p.methodId === m.id);
+        return true;
     });
 
 
@@ -1110,7 +1206,7 @@ export default function VentaPage() {
                         tabIndex="1"
                     />
                     <datalist id="client-suggestions">
-                        {availableClients.map((client) => (
+                        {(availableClients || []).filter(c => c.activo !== false).map((client) => (
                             <option key={client.id} value={client.nombre} />
                         ))}
                     </datalist>
@@ -1138,7 +1234,7 @@ export default function VentaPage() {
                                         <div style={{ display: 'flex', gap: '5px' }}>
                                             <input
                                                 type="text"
-                                                inputMode="decimal"
+                                                inputMode="decimal" min="0" step="0.01"
                                                 value={item.unitPrice > 0 && item.discount > 0 ? ((item.discount / item.unitPrice) * 100).toFixed(2).replace(/\.00$/, '') : ''}
                                                 onChange={(e) => {
                                                     const val = enforceMoneyFormat(e.target.value);
@@ -1155,7 +1251,7 @@ export default function VentaPage() {
                                             />
                                             <input
                                                 type="text"
-                                                inputMode="decimal"
+                                                inputMode="decimal" min="0" step="0.01"
                                                 value={item.discount || ''}
                                                 onChange={(e) => {
                                                     const val = enforceMoneyFormat(e.target.value);
@@ -1208,7 +1304,7 @@ export default function VentaPage() {
                                         >-</button>
                                         <input
                                             type="text"
-                                            inputMode="numeric"
+                                            inputMode="numeric" min="0" step="1"
                                             className="qty-input"
                                             // Req 1: Use localQtyValues as display buffer so empty string can be shown while editing.
                                             // item.quantity (always >= 1) is only used when no local override exists.
@@ -1291,11 +1387,11 @@ export default function VentaPage() {
                 {/* PAYMENT STACK */}
                 <div className="payment-section">
                     <div className="payment-stack">
-                        {payments.map((p, i) => (
-                            <div key={i} className="payment-item">
+                        {payments.map((p) => (
+                            <div key={p._internalId} className="payment-item">
                                 <span className="payment-name">{p.name}</span>
                                 <span className="payment-amount-label">{formatCurrency(p.amount)}</span>
-                                {!p.id && <button className="remove-btn-new" onClick={() => removePaymentMethod(i)}>×</button>}
+                                <button className="remove-btn-new" onClick={() => removePaymentMethod(p._internalId)}>×</button>
                             </div>
                         ))}
                     </div>
@@ -1307,7 +1403,6 @@ export default function VentaPage() {
                             value={selectedMethodId}
                             onChange={handleMethodSelect}
                             tabIndex="2"
-                            disabled={!!editingPendingId}
                         >
                             <option value="" disabled>Elegir Método</option>
                             {availableMethods.map(m => (
@@ -1317,11 +1412,10 @@ export default function VentaPage() {
                         <input
                             ref={paymentAmountRef}
                             type="text"
-                            inputMode="decimal"
+                            inputMode="decimal" min="0" step="0.01"
                             className="payment-amount"
                             placeholder="$"
                             value={paymentAmount}
-                            disabled={!!editingPendingId}
                             onChange={(e) => {
                                 const val = enforceMoneyFormat(e.target.value);
                                 setPaymentAmount(val);
@@ -1334,7 +1428,7 @@ export default function VentaPage() {
                             onFocus={(e) => e.target.select()}
                             tabIndex="3"
                         />
-                        <button onClick={handleAddPayment} className="add-payment-btn" tabIndex="5" disabled={!!editingPendingId}>+</button>
+                        <button onClick={handleAddPayment} className="add-payment-btn" tabIndex="5">+</button>
                     </div>
 
                     <div className="totals-area">
@@ -1343,7 +1437,7 @@ export default function VentaPage() {
                             <div style={{ display: 'flex', gap: '5px' }}>
                                 <input
                                     type="text"
-                                    inputMode="decimal"
+                                    inputMode="decimal" min="0" step="0.01"
                                     value={totals.subtotal > 0 && globalDiscount > 0 ? ((globalDiscount / totals.subtotal) * 100).toFixed(2).replace(/\.00$/, '') : ''}
                                     onChange={(e) => {
                                         const val = enforceMoneyFormat(e.target.value);
@@ -1360,7 +1454,7 @@ export default function VentaPage() {
                                 />
                                 <input
                                     type="text"
-                                    inputMode="decimal"
+                                    inputMode="decimal" min="0" step="0.01"
                                     value={globalDiscount || ''}
                                     onChange={(e) => {
                                         const val = enforceMoneyFormat(e.target.value);
@@ -1371,6 +1465,43 @@ export default function VentaPage() {
                                     placeholder="$0"
                                     className="discount-global-input absolute-input"
                                     title="Descuento global en $"
+                                />
+                            </div>
+                        </div>
+                        <div className="totals-discount-col">
+                            <label className="discount-global-label" style={{color: '#d9534f'}}>Recargo Global</label>
+                            <div style={{ display: 'flex', gap: '5px' }}>
+                                <input
+                                    type="text"
+                                    inputMode="decimal" min="0" step="0.01"
+                                    value={totals.subtotal > 0 && globalSurcharge > 0 ? ((globalSurcharge / totals.subtotal) * 100).toFixed(2).replace(/\.00$/, '') : ''}
+                                    onChange={(e) => {
+                                        const val = enforceMoneyFormat(e.target.value);
+                                        const perc = parseFloat(val) || 0;
+                                        const absSurcharge = totals.subtotal * (perc / 100);
+                                        setGlobalSurcharge(absSurcharge);
+                                    }}
+                                    onKeyDown={blockNonNumericKeys}
+                                    onPaste={sanitizeNumericPaste}
+                                    placeholder="%"
+                                    className="discount-global-input percentage-input"
+                                    style={{ width: '50px', borderColor: '#d9534f' }}
+                                    title="Recargo global en %"
+                                />
+                                <input
+                                    type="text"
+                                    inputMode="decimal" min="0" step="0.01"
+                                    value={globalSurcharge || ''}
+                                    onChange={(e) => {
+                                        const val = enforceMoneyFormat(e.target.value);
+                                        setGlobalSurcharge(parseFloat(val) || 0);
+                                    }}
+                                    onKeyDown={blockNonNumericKeys}
+                                    onPaste={sanitizeNumericPaste}
+                                    placeholder="$0"
+                                    className="discount-global-input absolute-input"
+                                    style={{ borderColor: '#d9534f' }}
+                                    title="Recargo global en $"
                                 />
                             </div>
                         </div>
@@ -1474,9 +1605,9 @@ export default function VentaPage() {
                 {showOverpaidModal && (
                     <ConfirmationModal
                         title="⚠️ Monto Excedido"
-                        message={`El monto ingresado excede el total de la venta. Dinero faltante por pagar: ${formatCurrency(overpaidMaxAllowed)}. Corrija el monto del método de pago.`}
-                        confirmText={`Usar ${formatCurrency(overpaidMaxAllowed)}`}
-                        cancelText="Corregir manualmente"
+                        message={`El monto ingresado excede el total de la venta. Cambio a devolver: ${formatCurrency(parseFloat(paymentAmount) - overpaidMaxAllowed)}.`}
+                        confirmText={`Devolver Cambio en Mano`}
+                        cancelText="Cancelar"
                         isWarning={true}
                         onConfirm={handleAutoCorrectPayment}
                         onCancel={() => setShowOverpaidModal(false)}
@@ -1501,18 +1632,45 @@ export default function VentaPage() {
             {configModalOpen && configModalItem && (
                 <ProductConfigModal
                     isOpen={configModalOpen}
+                    onClose={() => setConfigModalOpen(false)}
                     item={configModalItem}
-                    onClose={() => {
+                    onSave={(productId, subItems) => {
+                        updateItemSubItems(productId, subItems);
                         setConfigModalOpen(false);
-                        setConfigModalItem(null);
-                    }}
-                    onSave={(productId, newSubItems) => {
-                        updateItemSubItems(productId, newSubItems);
-                        setConfigModalOpen(false);
-                        setConfigModalItem(null);
                     }}
                 />
             )}
+
+            <ClientChangeModal
+                isOpen={showClientChangeModal}
+                onCancel={() => setShowClientChangeModal(false)}
+                initialName={initialClientName}
+                newName={clientName}
+                isSubmitting={isSubmitting}
+                onOption1={async () => {
+                    if (isSubmitting) return;
+                    try {
+                        setIsSubmitting(true);
+                        await api.put(`/clientes/${initialClientId}/nombre`, { nombre: clientName });
+                        await executeSaveAsPending(initialClientId, clientName);
+                        setShowClientChangeModal(false);
+                    } catch (error) {
+                        toast.error(error.response?.data?.message || "Error al actualizar el nombre del cliente");
+                        setIsSubmitting(false);
+                    }
+                }}
+                onOption2={() => {
+                    if (isSubmitting) return;
+                    setShowClientChangeModal(false);
+                    executeSaveAsPending();
+                }}
+                onOption3={() => {
+                    if (isSubmitting) return;
+                    setClientName(initialClientName);
+                    setShowClientChangeModal(false);
+                    executeSaveAsPending(initialClientId, initialClientName);
+                }}
+            />
         </div>
     );
 }

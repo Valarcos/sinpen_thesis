@@ -32,7 +32,7 @@ public class ProductService {
     public PageResponse<Product> getAll(Long page, Long size) {
         // Defaults to avoid NPE / dumb values
         long p = (page == null || page < 0) ? 0 : page;
-        long s = (size == null || size <= 0) ? 20 : size;
+        long s = (size == null || size <= 0) ? 20 : Math.min(size, 100);
 
         long totalElements = repository.countAll();
         long totalPages = (long) Math.ceil((double) totalElements / s);
@@ -90,16 +90,16 @@ public class ProductService {
         }
 
         // Enforce uppercase product codes for case-insensitive standardization
-        product.setCodigo(product.getCodigo().toUpperCase().trim());
+        product.setCodigo(com.centralizesys.util.StringUtil.safeTruncate(product.getCodigo().toUpperCase().trim(), 100));
 
         if (product.getDescripcion() == null || product.getDescripcion().isBlank()) {
             throw new BusinessRuleException("La descripción es obligatoria.");
         }
+        product.setDescripcion(com.centralizesys.util.StringUtil.safeTruncate(product.getDescripcion().trim(), 255));
         if (product.getPrecioMinorista() == null || product.getPrecioMinorista() < 0) {
             throw new BusinessRuleException("El precio de venta minorista debe ser 0 o mayor.");
         }
 
-        // Allow null, but if it exists, it must be >= 0
         if (product.getPrecioMayorista() != null && product.getPrecioMayorista() < 0) {
             throw new BusinessRuleException("El precio de venta mayorista debe ser 0 o mayor.");
         }
@@ -138,8 +138,9 @@ public class ProductService {
         applyWholesalePriceDefault(product);
 
         // 3. Inject audit identity (Zero-Trust: ID comes from the server, never the client)
-        product.setCreadoPor(usuarioId != null ? usuarioId : 0L);
-        product.setActualizadoPor(usuarioId != null ? usuarioId : 0L);
+        long resolvedUserId = resolveUserId(usuarioId);
+        product.setCreadoPor(resolvedUserId);
+        product.setActualizadoPor(resolvedUserId);
 
         // 4. Zero-Trust Price Override for new variants of existing families.
         //    When a new variant is being added (not a generic codigo='1'), look up the
@@ -196,7 +197,7 @@ public class ProductService {
         // 5. Cascade Update: Apply new descripcion, precioMinorista, precioMayorista (and optionally
         //    codigo) to ALL active siblings, including the product being edited itself.
         //    Note: precioCosto is intentionally NOT cascaded — each variant has its own purchase cost.
-        long resolvedUserId = usuarioId != null ? usuarioId : 0L;
+        long resolvedUserId = resolveUserId(usuarioId);
         for (Product sibling : siblings) {
             sibling.setDescripcion(product.getDescripcion());
             sibling.setPrecioMinorista(product.getPrecioMinorista());
@@ -228,7 +229,7 @@ public class ProductService {
      * Applied in both create and update paths.
      */
     private void applyWholesalePriceDefault(Product product) {
-        if (product.getPrecioMayorista() == null) {
+        if (product.getPrecioMayorista() == null || product.getPrecioMayorista() == 0.0) {
             product.setPrecioMayorista(product.getPrecioMinorista());
         }
     }
@@ -262,6 +263,10 @@ public class ProductService {
         if (a == null || b == null)
             return false;
         return Math.abs(a - b) < 0.001;
+    }
+
+    private long resolveUserId(Long usuarioId) {
+        return usuarioId != null ? usuarioId : 0L;
     }
 
     // [CHANGED SIGNATURE] Added usuarioId

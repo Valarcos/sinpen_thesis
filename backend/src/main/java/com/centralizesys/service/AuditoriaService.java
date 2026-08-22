@@ -27,10 +27,18 @@ public class AuditoriaService {
      * but the try-catch ensures it doesn't crash the main business logic if it
      * fails.
      */
+    private String safeTruncate(String str, int maxLen) {
+        if (str == null || str.length() <= maxLen) return str;
+        if (Character.isHighSurrogate(str.charAt(maxLen - 1))) {
+            return str.substring(0, maxLen - 1);
+        }
+        return str.substring(0, maxLen);
+    }
+
     @Transactional
     public void registrarAccion(Long usuarioId, String accion, String detalles) {
         try {
-            repository.save(usuarioId, accion, detalles);
+            repository.save(usuarioId, accion, safeTruncate(detalles, 255));
         } catch (Exception e) {
             logger.error("FALLO AUDITORIA: No se pudo registrar la acción '{}'. Error: {}", accion, e.getMessage());
         }

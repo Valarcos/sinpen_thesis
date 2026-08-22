@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import ConfirmationModal from './ConfirmationModal';
@@ -19,6 +19,7 @@ export default function StockManagementModal({ product, onClose, onSuccess, allo
     const [allLocations, setAllLocations] = useState([]);
     const [loading, setLoading] = useState(true);
     const [adjusting, setAdjusting] = useState(false);
+    const isMounted = useRef(true);
 
     // Adjustment form state
     const [selectedLocation, setSelectedLocation] = useState('');
@@ -30,13 +31,15 @@ export default function StockManagementModal({ product, onClose, onSuccess, allo
 
     // Load stock data and locations
     useEffect(() => {
+        isMounted.current = true;
         const loadData = async () => {
             try {
-                setLoading(true);
+                if (isMounted.current) setLoading(true);
                 const [stockRes, locationsRes] = await Promise.all([
                     api.get(`/stock/producto/${product.id}`),
                     api.get('/locations')
                 ]);
+                if (!isMounted.current) return;
                 setStockLocations(stockRes.data);
                 setAllLocations(locationsRes.data);
 
@@ -46,19 +49,20 @@ export default function StockManagementModal({ product, onClose, onSuccess, allo
                 }
             } catch (error) {
                 console.error('Error loading stock data:', error);
-                toast.error('Error al cargar datos de stock');
+                // Error handled by global api interceptor
             } finally {
-                setLoading(false);
+                if (isMounted.current) setLoading(false);
             }
         };
         loadData();
+        return () => { isMounted.current = false; };
     }, [product.id]);
 
     // Refresh stock after adjustment
     const refreshStock = async () => {
         try {
             const response = await api.get(`/stock/producto/${product.id}`);
-            setStockLocations(response.data);
+            if (isMounted.current) setStockLocations(response.data);
         } catch (error) {
             console.error('Error refreshing stock:', error);
         }
@@ -78,7 +82,7 @@ export default function StockManagementModal({ product, onClose, onSuccess, allo
 
     const executeAdjust = async (qty, locationId, op) => {
         try {
-            setAdjusting(true);
+            if (isMounted.current) setAdjusting(true);
             const endpoint = op === 'add' ? '/stock/add' : '/stock/subtract';
 
             await api.post(endpoint, {
@@ -91,24 +95,25 @@ export default function StockManagementModal({ product, onClose, onSuccess, allo
             toast.success(`${qty} unidades ${actionText} correctamente`);
 
             // Reset form and refresh
-            setQuantity('');
+            if (isMounted.current) setQuantity('');
             await refreshStock();
 
-            if (onSuccess) {
+            if (isMounted.current && onSuccess) {
                 onSuccess();
             }
         } catch (error) {
             console.error('Error adjusting stock:', error);
-            const message = error.response?.data?.message || 'Error al ajustar stock';
-            toast.error(message);
+            // Vector 2: Force re-fetch on failure to resync state
+            await refreshStock();
         } finally {
-            setAdjusting(false);
+            if (isMounted.current) setAdjusting(false);
         }
     };
 
     const handleAdjust = async (e) => {
         e.preventDefault();
 
+        if (adjusting) return;
         const qty = parseInt(quantity, 10);
         if (!qty || qty <= 0) {
             toast.error('Ingrese una cantidad válida mayor a 0');
@@ -149,14 +154,14 @@ export default function StockManagementModal({ product, onClose, onSuccess, allo
     };
 
     // Compute total stock from stockLocations (auto-refreshes after adjustments)
-    const totalStock = stockLocations.reduce((sum, loc) => sum + loc.cantidad, 0);
+    const totalStock = (stockLocations || []).reduce((sum, loc) => sum + loc.cantidad, 0);
 
     // Context-aware filter:
     // Normal mode  → only show locations with positive stock (clean UI, no noise)
     // Correction mode → show ALL locations including zero/negative (diagnose the problem)
     const visibleLocations = confirmationMode
-        ? stockLocations
-        : stockLocations.filter(loc => loc.cantidad > 0);
+        ? (stockLocations || [])
+        : (stockLocations || []).filter(loc => loc.cantidad > 0);
 
     return (
         <>
@@ -189,7 +194,7 @@ export default function StockManagementModal({ product, onClose, onSuccess, allo
                                         </tr>
                                         </thead>
                                         <tbody>
-                                        {visibleLocations.map((loc) => (
+                                        {(visibleLocations || []).map((loc) => (
                                             <tr key={loc.id} className={loc.cantidad < 0 ? 'negative-stock' : ''}>
                                                 <td>{loc.nombreUbicacion}</td>
                                                 <td className={loc.cantidad < 0 ? 'negative' : ''}>
@@ -221,7 +226,7 @@ export default function StockManagementModal({ product, onClose, onSuccess, allo
                                             onChange={(e) => setSelectedLocation(e.target.value)}
                                             required
                                         >
-                                            {allLocations.map((loc) => (
+                                            {(allLocations || []).map((loc) => (
                                                 <option key={loc.id} value={loc.id}>
                                                     {loc.nombre} ({getStockForLocation(loc.id)} uds)
                                                 </option>

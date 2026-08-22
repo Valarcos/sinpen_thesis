@@ -1,6 +1,7 @@
 package com.centralizesys.service;
 
 import com.centralizesys.BaseIntegrationTest;
+import com.centralizesys.exception.BusinessRuleException;
 import com.centralizesys.exception.ResourceNotFoundException;
 import com.centralizesys.model.sales.VentaRequest;
 import com.centralizesys.model.sales.VentaResponse;
@@ -10,7 +11,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -87,9 +87,10 @@ class VentaServiceIntegrationTest extends BaseIntegrationTest {
         request.setPagos(List.of(invalidPago));
 
         // Act & Assert
-        // The service is marked @Transactional. It will start a transaction.
-        // When it throws, it should rollback.
-        assertThrows(DataIntegrityViolationException.class, () -> ventaService.registrarVenta(request));
+        // Since Phase 4.1, the service validates the payment method ID *before* any SQL insert.
+        // A non-existent payment method ID now throws BusinessRuleException at the service layer.
+        // The transaction still rolls back atomically — the Venta header must NOT be persisted.
+        assertThrows(BusinessRuleException.class, () -> ventaService.registrarVenta(request));
 
         // PROOF that rollback worked:
         // Since we are NOT in a test transaction, we can see the real DB state committed by the Service.
@@ -122,9 +123,14 @@ class VentaServiceIntegrationTest extends BaseIntegrationTest {
         item.setProductoId(testProductId);
         item.setCantidad(1L);
 
+        VentaRequest.PagoRequest pago = new VentaRequest.PagoRequest();
+        pago.setMetodoPagoId(1L);
+        pago.setMonto(100.0);
+
         VentaRequest request = new VentaRequest();
-        request.setClienteNombre("No User Client");
+        request.setClienteNombre("Consumidor Final");
         request.setItems(List.of(item));
+        request.setPagos(List.of(pago));
         request.setUsuarioId(null); // Explicit Null
 
         // Act
@@ -151,9 +157,16 @@ class VentaServiceIntegrationTest extends BaseIntegrationTest {
         item.setProductoId(testProductId);
         item.setCantidad(5L);
 
+        VentaRequest.PagoRequest pago = new VentaRequest.PagoRequest();
+        pago.setMetodoPagoId(1L);
+        pago.setMonto(500.0);
+
         VentaRequest request = new VentaRequest();
-        request.setClienteNombre("Stock Test Client");
+        request.setClienteNombre("Consumidor Final");
         request.setItems(List.of(item));
+        request.setPagos(List.of(pago));
+        Long localTestUserId = createTestUser();
+        request.setUsuarioId(localTestUserId);
         ventaService.registrarVenta(request);
 
         // Assert

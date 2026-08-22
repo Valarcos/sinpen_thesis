@@ -44,4 +44,15 @@ public class ClienteController {
     public ResponseEntity<List<com.centralizesys.model.sales.VentaResponse>> getVentasByClienteId(@PathVariable Long id) {
         return ResponseEntity.ok(ventaService.getVentasByClienteId(id));
     }
+
+    @PutMapping("/{id}/nombre")
+    public ResponseEntity<Void> updateNombre(@PathVariable Long id, @RequestBody java.util.Map<String, String> payload) {
+        String nuevoNombre = payload.get("nombre");
+        if (nuevoNombre == null || nuevoNombre.trim().isEmpty()) {
+            throw new com.centralizesys.exception.BusinessRuleException("El nombre no puede estar vacío.");
+        }
+        Long authenticatedUserId = com.centralizesys.security.SecurityUtils.getAuthenticatedUserId();
+        clienteService.updateClienteNombre(id, nuevoNombre.trim(), authenticatedUserId);
+        return ResponseEntity.ok().build();
+    }
 }

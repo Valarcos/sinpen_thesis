@@ -26,29 +26,33 @@ class DeudoresServiceIntegrationTest extends BaseIntegrationTest {
     @Autowired
     private VentaRepository ventaRepository;
 
+    private Long createTestVenta(Long userId, String clientName, Double total) {
+        Venta venta = new Venta();
+        venta.setFecha(LocalDateTime.of(2026, java.time.Month.JANUARY, 1, 12, 0));
+        venta.setClienteNombre(clientName);
+        venta.setTotalVenta(total);
+        venta.setUsuarioId(userId);
+        venta.setTipoVenta("MINORISTA");
+        venta.setEstado("ACTIVA");
+        return ventaRepository.saveVenta(venta);
+    }
+
+    private Long createTestDeuda(Long ventaId, String clientName, Double amount) {
+        deudoresRepository.save(ventaId, clientName, null, amount);
+        return deudoresRepository.findAll().stream()
+                .filter(d -> d.getVentaId().equals(ventaId))
+                .findFirst()
+                .orElseThrow().getId();
+    }
+
     @Test
     @DisplayName("Should handle partial and full payments with correct Double precision")
     void shouldHandlePaymentsRefactor() {
-        // 1. Setup Data
         Long userId = createTestUser();
+        Long ventaId = createTestVenta(userId, "Test Debtor", 100.0);
+        Long deudaId = createTestDeuda(ventaId, "Test Debtor", 100.50);
 
-        Venta venta = new Venta();
-        venta.setFecha(LocalDateTime.of(2026, java.time.Month.JANUARY, 1, 12, 0));
-        venta.setClienteNombre("Test Debtor");
-        venta.setTotalVenta(100.0);
-        venta.setUsuarioId(userId);
-        Long ventaId = ventaRepository.saveVenta(venta);
-
-        // Create Debt of $100.50
-        deudoresRepository.save(ventaId, "Test Debtor", null, 100.50);
-
-        // Retrieve ID of the created debt
-        DeudaResponse initialDebt = deudoresRepository.findAll().stream()
-                .filter(d -> d.getVentaId().equals(ventaId))
-                .findFirst()
-                .orElseThrow();
-        Long deudaId = initialDebt.getId();
-
+        DeudaResponse initialDebt = deudoresService.getById(deudaId);
         assertEquals(DebtStatus.PENDIENTE.name(), initialDebt.getEstado());
 
         // 2. Partial Payment ($50.20)
@@ -77,11 +81,8 @@ class DeudoresServiceIntegrationTest extends BaseIntegrationTest {
     void shouldHandleRounding() {
         // Scenario: 10.00 debt. Payment of 3.33 repeated 3 times.
         Long userId = createTestUser();
-        Venta venta = new Venta(null, LocalDateTime.of(2026, java.time.Month.JANUARY, 1, 12, 0), LocalDateTime.of(2026, java.time.Month.JANUARY, 1, 12, 0), "Math User", null, 10.0, 0.0, "MINORISTA", userId, "ACTIVA", 0.0, 0L);
-        Long ventaId = ventaRepository.saveVenta(venta);
-
-        deudoresRepository.save(ventaId, "Math User", null, 10.00);
-        Long deudaId = deudoresRepository.findAll().getFirst().getId();
+        Long ventaId = createTestVenta(userId, "Math User", 10.0);
+        Long deudaId = createTestDeuda(ventaId, "Math User", 10.00);
 
         // Helper
         PagoDeudaRequest p = new PagoDeudaRequest();
@@ -115,14 +116,8 @@ class DeudoresServiceIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Should record payment in pagos_deuda history")
     void shouldRecordPaymentInHistory() {
         Long userId = createTestUser();
-        Venta venta = new Venta(null, LocalDateTime.of(2026, java.time.Month.JANUARY, 1, 12, 0), LocalDateTime.of(2026, java.time.Month.JANUARY, 1, 12, 0), "History User", null, 100.0, 0.0, "MINORISTA", userId, "ACTIVA", 0.0, 0L);
-        Long ventaId = ventaRepository.saveVenta(venta);
-
-        deudoresRepository.save(ventaId, "History User", null, 100.0);
-        Long deudaId = deudoresRepository.findAll().stream()
-                .filter(d -> d.getVentaId().equals(ventaId))
-                .findFirst()
-                .orElseThrow().getId();
+        Long ventaId = createTestVenta(userId, "History User", 100.0);
+        Long deudaId = createTestDeuda(ventaId, "History User", 100.0);
 
         // Act
         PagoDeudaRequest p = new PagoDeudaRequest();
@@ -139,5 +134,85 @@ class DeudoresServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals("First Installment", pagos.getFirst().getObservaciones());
         assertNotNull(pagos.getFirst().getUsuarioNombre());
         assertEquals("Efectivo", pagos.getFirst().getMetodoPagoNombre()); // Assuming 1=Efectivo
+    }
+
+    @Test
+    @DisplayName("Should successfully retrieve an existing debt by Venta ID")
+    void shouldGetDebtByVentaId_WhenExists() {
+        Long userId = createTestUser();
+        Long ventaId = createTestVenta(userId, "Fiado Client", 200.0);
+        createTestDeuda(ventaId, "Fiado Client", 200.0);
+
+        DeudaResponse debt = deudoresService.getByVentaId(ventaId);
+
+        assertNotNull(debt);
+        assertEquals(ventaId, debt.getVentaId());
+        assertEquals("Fiado Client", debt.getClienteNombre());
+        assertEquals(200.0, debt.getMontoOriginal());
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when no debt exists for Venta ID")
+    void shouldThrowResourceNotFound_WhenVentaIdDoesNotExist() {
+        Long userId = createTestUser();
+        Long ventaId = createTestVenta(userId, "Standard Client", 150.0); // NO debt created
+
+        com.centralizesys.exception.ResourceNotFoundException exception = assertThrows(
+                com.centralizesys.exception.ResourceNotFoundException.class,
+                () -> deudoresService.getByVentaId(ventaId)
+        );
+
+        assertTrue(exception.getMessage().contains("Deuda de Venta with ID " + ventaId + " not found"));
+    }
+
+    @Test
+    @DisplayName("Should NOT instantly reduce debt when paying with Cheque (DEUDA_FIADO)")
+    void registrarPago_WithCheque_DoesNotReduceDebtInstantly() {
+        Long userId = createTestUser();
+        Long ventaId = createTestVenta(userId, "Cheque Client", 300.0);
+        Long deudaId = createTestDeuda(ventaId, "Cheque Client", 300.0);
+
+        PagoDeudaRequest chequePayment = new PagoDeudaRequest();
+        chequePayment.setMontoPago(300.0);
+        chequePayment.setMetodoPagoId(3L); // Cheque ID
+        chequePayment.setFechaCobro(java.time.LocalDate.now().plusDays(15));
+        chequePayment.setObservaciones("Cheque Payment");
+
+        DeudaResponse response = deudoresService.registrarPago(deudaId, java.util.List.of(chequePayment), userId);
+
+        // Debt must NOT be reduced immediately
+        assertEquals(300.0, response.getMontoDeuda(), 0.001);
+        assertEquals(DebtStatus.PENDIENTE.name(), response.getEstado());
+
+        // Verify AlertaCheque was created
+        org.springframework.jdbc.core.JdbcTemplate jdbcTemplate = (org.springframework.jdbc.core.JdbcTemplate) org.springframework.test.util.ReflectionTestUtils.getField(deudoresRepository, "jdbcTemplate");
+        Integer count = ((org.springframework.jdbc.core.JdbcTemplate) jdbcTemplate).queryForObject(
+                "SELECT COUNT(*) FROM alertas_cheques WHERE venta_id = ? AND tipo_origen = 'DEUDA_FIADO'",
+                Integer.class, ventaId);
+        assertNotNull(count);
+        assertEquals(1, count);
+    }
+
+    @Test
+    @DisplayName("Should reduce debt by cash amount but defer cheque amount when mixed")
+    void registrarPago_MixedCashAndCheque() {
+        Long userId = createTestUser();
+        Long ventaId = createTestVenta(userId, "Mixed Client", 500.0);
+        Long deudaId = createTestDeuda(ventaId, "Mixed Client", 500.0);
+
+        PagoDeudaRequest cash = new PagoDeudaRequest();
+        cash.setMontoPago(200.0);
+        cash.setMetodoPagoId(1L); // Efectivo
+
+        PagoDeudaRequest cheque = new PagoDeudaRequest();
+        cheque.setMontoPago(300.0);
+        cheque.setMetodoPagoId(3L); // Cheque
+        cheque.setFechaCobro(java.time.LocalDate.now().plusDays(15));
+
+        DeudaResponse response = deudoresService.registrarPago(deudaId, java.util.List.of(cash, cheque), userId);
+
+        // Debt must be reduced ONLY by the $200 cash payment
+        assertEquals(300.0, response.getMontoDeuda(), 0.001);
+        assertEquals(DebtStatus.PARCIAL.name(), response.getEstado());
     }
 }

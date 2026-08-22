@@ -12,13 +12,28 @@ public class VentaRequest {
     private String clienteNombre;
     private Long clienteId; // NEW: from Phase 2 plan
     private Double descuentoGlobal = 0.0; // NEW
+    private Double recargoGlobal = 0.0;   // Global surcharge (tax, credit card fees, etc.)
+    private Double saldoGenerado = 0.0;   // Intent to convert overpayment to credit
+
+    public void setDescuentoGlobal(Double descuentoGlobal) {
+        this.descuentoGlobal = (descuentoGlobal != null) ? descuentoGlobal : 0.0;
+    }
+
+    public void setRecargoGlobal(Double recargoGlobal) {
+        this.recargoGlobal = (recargoGlobal != null) ? recargoGlobal : 0.0;
+    }
+
+    public void setSaldoGenerado(Double saldoGenerado) {
+        this.saldoGenerado = (saldoGenerado != null) ? saldoGenerado : 0.0;
+    }
+    private Integer version = 0; // NEW: Optimistic locking version
 
     // NOTE: This field is ALWAYS overridden by VentaController using
     // SecurityUtils.getAuthenticatedUserId().
     // Any value sent from the client in the request body is discarded. Do NOT trust
     // client-supplied identity.
     private Long usuarioId;
-    private TipoVenta tipoVenta = TipoVenta.MINORISTA; // Default to Retail
+    private TipoVenta tipoVenta; // Removed default to allow partial updates without forcing MINORISTA
 
     // The list of products being bought
     private List<ItemRequest> items;
@@ -44,12 +59,20 @@ public class VentaRequest {
 
         private Double valorDescuento = 0.0;
         private String razonDescuento;
+
+        public void setValorDescuento(Double valorDescuento) {
+            this.valorDescuento = (valorDescuento != null) ? valorDescuento : 0.0;
+        }
     }
 
     @Data
     @NoArgsConstructor
     public static class PagoRequest {
         private Long metodoPagoId; // ID from metodos_pago table
-        private Double monto;
+        private Double monto = 0.0;
+
+        public void setMonto(Double monto) {
+            this.monto = (monto != null) ? monto : 0.0;
+        }
     }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import UserFormModal from '../components/UserFormModal';
@@ -15,22 +15,25 @@ export default function AdminPage() {
     const [editingUser, setEditingUser] = useState(null);
     const [deletingUser, setDeletingUser] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const isMounted = useRef(true);
 
     const fetchUsers = useCallback(async () => {
         try {
-            setLoading(true);
+            if (isMounted.current) setLoading(true);
             const response = await api.get('/usuarios');
-            setUsers(response.data);
+            if (isMounted.current) setUsers(response.data);
         } catch (error) {
             console.error('Error fetching users:', error);
-            toast.error('Error al cargar usuarios');
+            // Error handled by global api interceptor
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     }, []);
 
     useEffect(() => {
+        isMounted.current = true;
         fetchUsers();
+        return () => { isMounted.current = false; };
     }, [fetchUsers]);
 
     const handleCreateUser = () => {
@@ -58,17 +61,21 @@ export default function AdminPage() {
         if (!deletingUser || isDeleting) return;
 
         try {
-            setIsDeleting(true);
+            if (isMounted.current) setIsDeleting(true);
             await api.delete(`/usuarios/${deletingUser.id}`);
             toast.success('Usuario eliminado correctamente');
-            setShowDeleteModal(false);
-            setDeletingUser(null);
+            if (isMounted.current) {
+                setShowDeleteModal(false);
+                setDeletingUser(null);
+            }
             fetchUsers();
         } catch (error) {
             console.error('Error deleting user:', error);
-            toast.error('Error al eliminar usuario');
+            // Error handled by global api interceptor
+            // Vector 2: Force re-fetch on failure to resync state
+            fetchUsers();
         } finally {
-            setIsDeleting(false);
+            if (isMounted.current) setIsDeleting(false);
         }
     };
 
@@ -121,7 +128,7 @@ export default function AdminPage() {
                         </tr>
                         </thead>
                         <tbody>
-                        {users.map((user) => (
+                        {(users || []).map((user) => (
                             <tr key={user.id}>
                                 <td>{user.id}</td>
                                 <td>{user.nombre}</td>

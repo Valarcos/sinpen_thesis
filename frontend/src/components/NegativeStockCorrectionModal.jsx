@@ -40,7 +40,7 @@ export default function NegativeStockCorrectionModal({ products, onClose, onCorr
                             </tr>
                             </thead>
                             <tbody>
-                            {products.map((product) => (
+                            {(products || []).map((product) => (
                                 <tr key={product.id}>
                                     <td data-label="Código">{product.codigo || '-'}</td>
                                     <td data-label="Descripción" className="neg-product-name">{product.descripcion}</td>

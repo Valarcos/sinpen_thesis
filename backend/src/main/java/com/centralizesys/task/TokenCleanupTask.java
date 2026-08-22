@@ -43,7 +43,7 @@ public class TokenCleanupTask {
      */
     @Scheduled(cron = "0 0 * * * *")
     public void cleanupExpiredData() {
-        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires"));
         log.info("Running security housekeeping cleanup at {}.", now);
 
         activeTokenRepository.deleteExpired(now);

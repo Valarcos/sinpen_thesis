@@ -68,7 +68,7 @@ public class JwtTokenProvider {
     public LocalDateTime getExpirationFromToken(String token) {
         return parseClaims(token).getExpiration()
                 .toInstant()
-                .atZone(ZoneId.systemDefault())
+                .atZone(ZoneId.of("America/Argentina/Buenos_Aires"))
                 .toLocalDateTime();
     }
 

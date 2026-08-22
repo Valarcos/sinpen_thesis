@@ -37,10 +37,16 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
     const [totalElements, setTotalElements] = useState(0);
 
     const [size, setSize] = useState(window.innerWidth <= 768 ? 5 : 10);
+    const isMounted = useRef(true);
+
     useEffect(() => {
+        isMounted.current = true;
         const handleResize = () => setSize(window.innerWidth <= 768 ? 5 : 10);
         window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
+        return () => {
+            isMounted.current = false;
+            window.removeEventListener('resize', handleResize);
+        };
     }, []);
 
     // Submitting states
@@ -82,6 +88,7 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
                     size
                 }
             });
+            if (!isMounted.current) return;
             // Defensive parsing to support both new PageResponse and old Array formats if backend is not restarted
             const data = res.data;
             if (Array.isArray(data)) {
@@ -99,9 +106,9 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
             }
         } catch (error) {
             console.error("Error loading gastos:", error);
-            toast.error("Error al cargar los gastos");
+            // Error handled by global api interceptor
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     }, [filterParams, page]);
 
@@ -154,15 +161,17 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
             await api.post('/gastos', payload);
             toast.success("Gasto registrado correctamente");
 
-            // Reset form
-            setMonto('');
-            setMotivo('');
-            setFechaGasto(getLocalDatetimeLocal());
-            setCategoria('Otros');
-            setPersona('');
+            if (isMounted.current) {
+                // Reset form
+                setMonto('');
+                setMotivo('');
+                setFechaGasto(getLocalDatetimeLocal());
+                setCategoria('Otros');
+                setPersona('');
 
-            // Reload (force to page 0 to see the new entry)
-            setPage(0);
+                // Reload (force to page 0 to see the new entry)
+                setPage(0);
+            }
             loadGastos();
             if (onGastosChanged) onGastosChanged();
 
@@ -170,9 +179,10 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
             montoRef.current?.focus();
         } catch (error) {
             console.error("Error saving gasto:", error);
-            toast.error("Error al guardar el gasto");
+            // Vector 2: Force refetch on failure
+            loadGastos();
         } finally {
-            setIsSubmitting(false);
+            if (isMounted.current) setIsSubmitting(false);
         }
     };
 
@@ -191,16 +201,19 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
             setIsCanceling(true);
             await api.post(`/gastos/${cancelGasto.id}/anular`, { razonAnulacion: cancelReason });
             toast.success("Gasto anulado correctamente");
-            setIsCancelModalOpen(false);
-            setCancelGasto(null);
+            if (isMounted.current) {
+                setIsCancelModalOpen(false);
+                setCancelGasto(null);
+            }
 
             loadGastos();
             if (onGastosChanged) onGastosChanged();
         } catch (error) {
             console.error("Error canceling gasto:", error);
-            toast.error("Error al anular el gasto");
+            // Vector 2: Force refetch on failure
+            loadGastos();
         } finally {
-            setIsCanceling(false);
+            if (isMounted.current) setIsCanceling(false);
         }
     };
 
@@ -263,6 +276,7 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
                             <input
                                 type="text"
                                 inputMode="decimal"
+                                min="0"
                                 value={monto}
                                 onChange={handleMontoChange}
                                 required
@@ -304,7 +318,7 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
                                 onKeyDown={(e) => handleKeyDown(e, personaRef)}
                                 tabIndex={4}
                             >
-                                {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+                                {(categorias || []).map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                         </div>
                         <div className="form-group">
@@ -383,7 +397,7 @@ export default function GastosVariosSection({ onGastosChanged, filterParams = DE
                                 </tr>
                                 </thead>
                                 <tbody>
-                                {gastos.map(g => (
+                                {(gastos || []).map(g => (
                                     <tr key={g.id} className={g.anulado ? 'row-canceled' : ''}>
                                         <td data-label="Fecha" className="fecha-col">{formatDisplayDate(g.fechaGasto)}</td>
                                         <td data-label="Motivo" className="motivo-col" title={g.motivo}>

@@ -20,6 +20,7 @@ public class VentaResponse {
     private String vendedorNombre; // Name of the user who made the sale
     private Double totalVenta;
     private Double descuentoGlobal;
+    private Double recargoGlobal;  // Global surcharge
     private String tipoVenta;
     private List<DetalleVenta> items;
     private List<PagoVenta> pagos;
@@ -28,4 +29,5 @@ public class VentaResponse {
     private List<String> alertas;
     private String estado;
     private Double costoTotal;
+    private Integer version;
 }

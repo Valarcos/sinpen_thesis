@@ -62,7 +62,7 @@ public class AuthController {
                                               HttpServletRequest httpRequest) {
         String email = request.getEmail();
         String ipAddress = httpRequest.getRemoteAddr();
-        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires"));
 
         // 1. Pre-check: reject immediately if the account is currently blocked.
         loginAttemptService.checkAndThrowIfBlocked(email, now);

@@ -11,6 +11,7 @@
 *   **Mobile Design:** **STRICTLY** use minimal padding (0.25rem - 0.5rem) on mobile layouts to maximize screen real estate. Use `!important` if necessary to override defaults.
 *   **Data Lists/Tables:** **STRICTLY** use alternating background colors (zebra striping) for rows to enhance readability and data navigation.
 *   **Delivery:** Phased deployment.
+*   **AI Tooling Constraint:** You MUST explicitly prioritize your native specialized tools (`grep_search`, `view_file`, `replace_file_content`, `multi_replace_file_content`) over generic terminal commands (`run_command`, PowerShell, `findstr`). DO NOT use generic shell commands for reading, searching, or editing files.
 *   **Future:** Architecture must support migration to online hosting (Stateless REST API).
 *   **Tech Stack:**
     *   **Java:** 21 (LTS).
@@ -38,6 +39,7 @@
     *   **Nulls:** Do not use `Optional.get()` without `orElseThrow()`.
 *   **React Hook Refactoring (Temporal Dead Zone):** Whenever converting a standard `function` into a `const` arrow function (e.g. wrapping with `useCallback`), you MUST explicitly verify that the new `const` definition physically precedes ALL `useEffect` blocks or other hooks that reference it. Never introduce `ReferenceError: Cannot access before initialization` bugs.
 *   **React Defensive Programming:** Good and standard defensive programming MUST be used in React. Always guard against `undefined` or empty states during initial render cycles before `useEffect` hooks populate data (e.g., `if (!item || array.length === 0) return null;` or conditional rendering).
+*   **Global Idempotency (Double-Click Prevention):** ALL mutating endpoints (`@PostMapping`, `@PutMapping`, `@PatchMapping`, `@DeleteMapping`) MUST be protected against double-click/replay exploits. The system uses a generic `IdempotencyAspect` with an in-memory Caffeine cache (5-second TTL) that hashes the User ID, HTTP Method, URI, and the deep hash of the JSON payload. Do NOT bypass this or implement custom DB idempotency unless a long-lived transaction (e.g. 30 days) explicitly demands an `Idempotency-Key` DB table.
 
 ---
 

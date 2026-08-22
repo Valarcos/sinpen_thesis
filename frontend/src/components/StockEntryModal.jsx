@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import VariantConfirmationModal from './VariantConfirmationModal';
@@ -28,20 +28,23 @@ export default function StockEntryModal({ onClose, onSuccess }) {
 
     // Mobile Tab State (datos | items)
     const [activeTab, setActiveTab] = useState('datos');
+    const isMounted = useRef(true);
 
     useEffect(() => {
+        isMounted.current = true;
         // Fetch Locations
         const fetchLocations = async () => {
             try {
                 const res = await api.get('/locations');
-                setLocations(res.data);
+                if (isMounted.current) setLocations(res.data);
                 // Default to empty so user must select
             } catch (err) {
                 console.error("Error fetching locations", err);
-                toast.error("Error al cargar ubicaciones");
+                // Error handled by global api interceptor
             }
         };
         fetchLocations();
+        return () => { isMounted.current = false; };
     }, []);
 
     // --- SEARCH LOGIC ---
@@ -53,7 +56,7 @@ export default function StockEntryModal({ onClose, onSuccess }) {
             }
             try {
                 const res = await api.get('/productos', { params: { search: searchQuery, size: 20 } });
-                setSearchResults(res.data.content);
+                if (isMounted.current) setSearchResults(res.data.content);
             } catch (err) {
                 console.error(err);
             }
@@ -64,7 +67,7 @@ export default function StockEntryModal({ onClose, onSuccess }) {
 
     // --- HANDLERS ---
     const addToDraft = (product) => {
-        if (draftItems.some(item => item.product.id === product.id)) {
+        if ((draftItems || []).some(item => item.product.id === product.id)) {
             toast.error("El producto ya está en la lista");
             return;
         }
@@ -172,19 +175,19 @@ export default function StockEntryModal({ onClose, onSuccess }) {
             return;
         }
 
-        const hasErrors = draftItems.some(i => i.error);
+        const hasErrors = (draftItems || []).some(i => i.error);
         if (hasErrors) {
             toast.error("Hay items con diferencias de costo. Corrija o cree variantes.");
             return;
         }
 
-        if (draftItems.length === 0) {
+        if (!(draftItems || []).length) {
             toast.error("La lista está vacía");
             return;
         }
 
         try {
-            setIsSubmitting(true);
+            if (isMounted.current) setIsSubmitting(true);
             const payload = {
                 proveedor: provider,
                 nroComprobante: invoiceNo,
@@ -198,16 +201,16 @@ export default function StockEntryModal({ onClose, onSuccess }) {
 
             await api.post('/compras', payload);
             toast.success("Ingreso Registrado Correctamente");
-            onSuccess();
+            if (isMounted.current && onSuccess) onSuccess();
         } catch (error) {
             console.error(error);
-            toast.error(error.response?.data?.message || "Error al registrar ingreso");
+            // Error handled by global api interceptor
         } finally {
-            setIsSubmitting(false);
+            if (isMounted.current) setIsSubmitting(false);
         }
     };
 
-    const total = draftItems.reduce((sum, item) => sum + (item.quantity * item.cost), 0);
+    const total = (draftItems || []).reduce((sum, item) => sum + (item.quantity * item.cost), 0);
 
     return (
         <div className="stock-entry-modal-overlay">
@@ -242,7 +245,7 @@ export default function StockEntryModal({ onClose, onSuccess }) {
                                 onChange={e => setSelectedLocationId(e.target.value)}
                             >
                                 <option value="">Seleccione ubicación para productos</option>
-                                {locations.map(loc => (
+                                {(locations || []).filter(loc => loc.activo !== false).map(loc => (
                                     <option key={loc.id} value={loc.id}>{loc.nombre}</option>
                                 ))}
                             </select>
@@ -266,7 +269,7 @@ export default function StockEntryModal({ onClose, onSuccess }) {
                         </div>
 
                         <div className="search-results">
-                            {searchResults.map(p => (
+                            {(searchResults || []).map(p => (
                                 <div key={p.id} className="search-item" onClick={() => addToDraft(p)}>
                                     <strong>{p.descripcion}</strong>
                                     <div>Costo: ${p.precioCosto}</div>
@@ -277,9 +280,9 @@ export default function StockEntryModal({ onClose, onSuccess }) {
 
                     {/* RIGHT: List (Items Tab on Mobile) */}
                     <div className={`right-panel ${activeTab === 'items' ? 'active-tab' : ''}`}>
-                        <h3>Items a Ingresar ({draftItems.length})</h3>
+                        <h3>Items a Ingresar ({(draftItems || []).length})</h3>
                         <div className="draft-list-scroll">
-                            {draftItems.map((item, i) => (
+                            {(draftItems || []).map((item, i) => (
                                 <div key={i} className={`draft-item ${item.error ? 'item-error' : ''}`}>
                                     <div className="item-info">
                                         <span className="item-name">{item.product.descripcion}</span>
@@ -291,6 +294,7 @@ export default function StockEntryModal({ onClose, onSuccess }) {
                                             <input
                                                 type="text"
                                                 inputMode="numeric"
+                                                min="1"
                                                 className="qty-input"
                                                 value={item.quantity}
                                                 onChange={e => updateItem(i, 'quantity', e.target.value)}
@@ -303,6 +307,7 @@ export default function StockEntryModal({ onClose, onSuccess }) {
                                             <input
                                                 type="text"
                                                 inputMode="decimal"
+                                                min="0"
                                                 className="cost-input"
                                                 value={item.cost}
                                                 onBlur={e => updateItem(i, 'cost', e.target.value)}

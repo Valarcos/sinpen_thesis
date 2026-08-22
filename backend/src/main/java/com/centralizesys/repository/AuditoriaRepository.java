@@ -40,7 +40,7 @@ public class AuditoriaRepository {
                 .addValue("usuarioId", usuarioId)
                 .addValue("accion", accion)
                 .addValue("detalles", detalles)
-                .addValue("fechaHora", LocalDateTime.now(java.time.ZoneId.systemDefault()));
+                .addValue("fechaHora", LocalDateTime.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires")));
 
         namedJdbcTemplate.update(sql, params);
     }
@@ -51,6 +51,7 @@ public class AuditoriaRepository {
                     SELECT * FROM auditoria
                     WHERE fecha_hora BETWEEN :start AND :end
                     ORDER BY fecha_hora DESC, id DESC
+                    LIMIT 1000
                 """;
 
         MapSqlParameterSource params = new MapSqlParameterSource()
