@@ -1,8 +1,11 @@
 package com.centralizesys.service;
 
 import com.centralizesys.exception.BusinessRuleException;
+import com.centralizesys.exception.ResourceNotFoundException;
 import com.centralizesys.model.product.Product;
 import com.centralizesys.model.product.StockLocation;
+import com.centralizesys.model.returns.DevolucionRequest;
+import com.centralizesys.model.sales.DetalleVenta;
 import com.centralizesys.model.sales.Venta;
 import com.centralizesys.model.sales.VentaRequest;
 import com.centralizesys.model.sales.VentaResponse;
@@ -19,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -498,9 +502,9 @@ class VentaServiceOrchestrationTest {
         pendingSale.setTotalVenta(500.0);
 
         when(ventaRepository.findById(ventaId)).thenReturn(Optional.of(pendingSale));
-        when(ventaRepository.sumPagosActivosByVentaId(ventaId)).thenReturn(0.0);
+
         // No pre-existing cheques for this venta
-        when(alertaChequeRepository.sumMontoPendienteByVentaId(ventaId)).thenReturn(0.0);
+
 
         com.centralizesys.model.debt.PagoDeudaRequest chequePayment = new com.centralizesys.model.debt.PagoDeudaRequest();
         chequePayment.setMontoPago(200.0);
@@ -531,8 +535,8 @@ class VentaServiceOrchestrationTest {
         pendingSale.setTotalVenta(300.0);
 
         when(ventaRepository.findById(ventaId)).thenReturn(Optional.of(pendingSale));
-        when(ventaRepository.sumPagosActivosByVentaId(ventaId)).thenReturn(0.0);
-        when(alertaChequeRepository.sumMontoPendienteByVentaId(ventaId)).thenReturn(0.0);
+
+
 
         com.centralizesys.model.debt.PagoDeudaRequest cashPayment = new com.centralizesys.model.debt.PagoDeudaRequest();
         cashPayment.setMontoPago(150.0);
@@ -561,8 +565,8 @@ class VentaServiceOrchestrationTest {
         pendingSale.setTotalVenta(500.0);
 
         when(ventaRepository.findById(ventaId)).thenReturn(Optional.of(pendingSale));
-        when(ventaRepository.sumPagosActivosByVentaId(ventaId)).thenReturn(0.0);
-        when(alertaChequeRepository.sumMontoPendienteByVentaId(ventaId)).thenReturn(0.0);
+
+
 
         com.centralizesys.model.debt.PagoDeudaRequest cashPayment = new com.centralizesys.model.debt.PagoDeudaRequest();
         cashPayment.setMontoPago(100.0);
@@ -596,9 +600,9 @@ class VentaServiceOrchestrationTest {
 
         when(ventaRepository.findById(ventaId)).thenReturn(Optional.of(pendingSale));
         // $80 already paid in cash
-        when(ventaRepository.sumPagosActivosByVentaId(ventaId)).thenReturn(80.0);
+
         // No pre-existing cheques
-        when(alertaChequeRepository.sumMontoPendienteByVentaId(ventaId)).thenReturn(0.0);
+
 
         com.centralizesys.model.debt.PagoDeudaRequest overPayingCheque = new com.centralizesys.model.debt.PagoDeudaRequest();
         overPayingCheque.setMontoPago(30.0); // $80 + $30 = $110 > $100
@@ -625,9 +629,9 @@ class VentaServiceOrchestrationTest {
 
         when(ventaRepository.findById(ventaId)).thenReturn(Optional.of(pendingSale));
         // $0 cash paid
-        when(ventaRepository.sumPagosActivosByVentaId(ventaId)).thenReturn(0.0);
+
         // BUT $150 cheque already registered
-        when(alertaChequeRepository.sumMontoPendienteByVentaId(ventaId)).thenReturn(150.0);
+
 
         com.centralizesys.model.debt.PagoDeudaRequest overPayingCash = new com.centralizesys.model.debt.PagoDeudaRequest();
         overPayingCash.setMontoPago(60.0); // $0 + $150 + $60 = $210 > $200
@@ -861,8 +865,8 @@ class VentaServiceOrchestrationTest {
         cliente.setId(3L);
         cliente.setActivo(true);
         when(clienteRepository.findById(3L)).thenReturn(Optional.of(cliente));
-        when(ventaRepository.sumPagosActivosByVentaId(ventaId)).thenReturn(0.0);
-        when(alertaChequeRepository.sumMontoPendienteByVentaId(ventaId)).thenReturn(0.0);
+
+
         when(ventaRepository.findDetallesByVentaId(ventaId)).thenReturn(Collections.emptyList());
 
         try {
