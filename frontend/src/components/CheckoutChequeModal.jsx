@@ -9,6 +9,12 @@ export default function CheckoutChequeModal({ isOpen, onClose, onConfirm, totalA
     const listRef = useRef(null);
     const lastMontoRef = useRef(null);
     const modalRef = useRef(null);
+    const isMounted = useRef(true);
+
+    useEffect(() => {
+        isMounted.current = true;
+        return () => { isMounted.current = false; };
+    }, []);
 
     // Initial pre-fill and focus
     useEffect(() => {
@@ -124,7 +130,7 @@ export default function CheckoutChequeModal({ isOpen, onClose, onConfirm, totalA
         try {
             await onConfirm(cheques);
         } finally {
-            setIsSubmitting(false);
+            if (isMounted.current) setIsSubmitting(false);
         }
     };
 
@@ -156,12 +162,13 @@ export default function CheckoutChequeModal({ isOpen, onClose, onConfirm, totalA
                     </div>
 
                     <div className="cheques-list" ref={listRef}>
-                        {cheques.map((cheque, index) => (
+                        {(cheques || []).map((cheque, index) => (
                             <div key={index} className="cheque-row">
                                 <label>Monto</label>
                                 <input
                                     type="text"
                                     inputMode="decimal"
+                                    min="0"
                                     placeholder="$"
                                     value={cheque.monto}
                                     ref={index === cheques.length - 1 ? lastMontoRef : null}

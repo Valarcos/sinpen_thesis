@@ -3,10 +3,17 @@ import { useState, useMemo, useCallback } from 'react';
 export default function useCart() {
     const [cartItems, setCartItems] = useState([]);
     const [clientName, setClientName] = useState('');
+    const [initialClientName, setInitialClientName] = useState('');
+    const [initialClientId, setInitialClientId] = useState(null);
     const [payments, setPayments] = useState([]);
     const [saleType, setSaleState] = useState('MINORISTA'); // 'MINORISTA' | 'MAYORISTA'
+    const [cartVersion, setCartVersion] = useState(null); // Optimistic locking
+    const [deletedPayments, setDeletedPayments] = useState([]);
+    const [deletedCheques, setDeletedCheques] = useState([]);
 
     const [globalDiscount, setGlobalDiscount] = useState(0);
+    const [globalSurcharge, setGlobalSurcharge] = useState(0);
+    const [saldoGenerado, setSaldoGenerado] = useState(0);
 
     const calculateItemPrice = useCallback((product, type) => {
         if (type === 'MAYORISTA') {
@@ -64,12 +71,13 @@ export default function useCart() {
             if (freshProduct) {
                 return {
                     ...item,
-                    product: { ...freshProduct }
+                    product: { ...freshProduct },
+                    unitPrice: calculateItemPrice(freshProduct, saleType)
                 };
             }
             return item;
         }));
-    }, []);
+    }, [saleType, calculateItemPrice]);
 
     const updateItemDiscount = useCallback((productId, discountValue) => {
         setCartItems(prev => prev.map(item =>
@@ -97,11 +105,21 @@ export default function useCart() {
     }, [calculateItemPrice]);
 
     const addPaymentMethod = useCallback((payment) => {
-        setPayments(prev => [...prev, payment]);
+        setPayments(prev => [...prev, { ...payment, _internalId: Date.now() + Math.random() }]);
     }, []);
 
-    const removePaymentMethod = useCallback((index) => {
-        setPayments(prev => prev.filter((_, i) => i !== index));
+    const removePaymentMethod = useCallback((internalId) => {
+        setPayments(prev => {
+            const p = prev.find(item => item._internalId === internalId);
+            if (p && p.id) {
+                if (p.isCheque) {
+                    setDeletedCheques(d => [...d, p.id]);
+                } else {
+                    setDeletedPayments(d => [...d, p.id]);
+                }
+            }
+            return prev.filter(item => item._internalId !== internalId);
+        });
     }, []);
 
     const totals = useMemo(() => {
@@ -114,26 +132,35 @@ export default function useCart() {
         // So Discount is PER UNIT.
 
         const subtotal = cartItems.reduce((sum, item) => {
-            const finalUnitPrice = Math.max(0, item.unitPrice - (item.discount || 0));
-            return sum + (finalUnitPrice * item.quantity);
+            if (item.subItems && item.subItems.length > 0) {
+                const subItemsSum = item.subItems.reduce((acc, sub) => {
+                    const finalUnitPrice = Math.max(0, item.unitPrice - (sub.discount || 0));
+                    return acc + (finalUnitPrice * sub.quantity);
+                }, 0);
+                return sum + subItemsSum;
+            } else {
+                const finalUnitPrice = Math.max(0, item.unitPrice - (item.discount || 0));
+                return sum + (finalUnitPrice * item.quantity);
+            }
         }, 0);
 
-        // 2. Global Discount
-        // Backend Logic: Total = Subtotal - GlobalDiscount
-        const total = Math.max(0, subtotal - globalDiscount);
+        // 2. Global Discount and Surcharge
+        // Backend Logic: Total = Subtotal - GlobalDiscount + GlobalSurcharge
+        const total = Math.max(0, subtotal - globalDiscount + globalSurcharge);
 
         // 3. Payment validation (Issues #7, #8, #9)
         const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-        const isOverpaid = totalPaid > total + 0.01; // Floating point safety
+        const isOverpaid = totalPaid > total + saldoGenerado + 0.01; // Floating point safety
 
         return {
-            subtotal, // This is actually Total before Global Discount
+            subtotal, // This is actually Total before Global Discount/Surcharge
             total,
             globalDiscount,
+            globalSurcharge,
             totalPaid,
             isOverpaid
         };
-    }, [cartItems, globalDiscount, payments]);
+    }, [cartItems, globalDiscount, globalSurcharge, payments, saldoGenerado]);
 
     const validateSale = useCallback(() => {
         if (cartItems.length === 0) {
@@ -144,8 +171,12 @@ export default function useCart() {
 
     const loadCartFromPendingSale = useCallback((sale, availableMethods) => {
         setClientName(sale.clienteNombre || '');
+        setInitialClientName(sale.clienteNombre || '');
+        setInitialClientId(sale.clienteId || null);
         setSaleState(sale.tipoVenta || 'MINORISTA');
-        setGlobalDiscount(sale.descuentoGlobal || 0);
+        setCartVersion(sale.version || 0);
+        setGlobalDiscount(Math.max(0, Number(sale.descuentoGlobal) || 0));
+        setGlobalSurcharge(Math.max(0, Number(sale.recargoGlobal) || 0));
 
         const mappedItems = (sale.items || []).map(d => ({
             product: {
@@ -170,16 +201,29 @@ export default function useCart() {
                 id: p.id,
                 methodId: p.metodoPagoId,
                 name: method ? method.descripcion : 'Pago Registrado',
-                amount: p.monto
+                amount: p.monto,
+                _internalId: Date.now() + Math.random() + p.id
             };
         });
-        setPayments(mappedPayments);
+        const mappedCheques = (sale.cheques || []).filter(c => c.estado !== 'ANULADA').map(c => {
+            return {
+                id: c.id,
+                isCheque: true,
+                name: 'Cheque a Cobrar',
+                amount: c.monto,
+                fechaCobro: c.fechaCobro,
+                _internalId: Date.now() + Math.random() + c.id
+            };
+        });
+        setPayments([...mappedPayments, ...mappedCheques]);
     }, []);
 
     return {
         cartItems,
         clientName,
         setClientName,
+        initialClientName,
+        initialClientId,
         payments,
         saleType,
         setSaleType,
@@ -191,6 +235,13 @@ export default function useCart() {
         updateItemSubItems, // New
         globalDiscount, // New
         setGlobalDiscount, // New
+        globalSurcharge,
+        setGlobalSurcharge,
+        cartVersion,
+        deletedPayments,
+        deletedCheques,
+        saldoGenerado,
+        setSaldoGenerado,
         removeFromCart,
         addPaymentMethod,
         removePaymentMethod,

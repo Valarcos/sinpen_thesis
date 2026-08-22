@@ -37,8 +37,8 @@ public class GastoCajaService {
         gasto.setMotivo(request.getMotivo());
         gasto.setCategoria(request.getCategoria());
 
-        gasto.setFechaGasto(request.getFechaGasto() != null ? request.getFechaGasto() : LocalDateTime.now(ZoneId.systemDefault()));
-        gasto.setFechaRegistro(LocalDateTime.now(ZoneId.systemDefault()));
+        gasto.setFechaGasto(request.getFechaGasto());
+        gasto.setFechaRegistro(LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")));
         gasto.setRegistradoPorUsuarioId(authenticatedUserId);
 
         if (request.getPersonaInvolucrada() != null && !request.getPersonaInvolucrada().trim().isEmpty()) {
@@ -67,7 +67,7 @@ public class GastoCajaService {
             throw new IllegalStateException("El gasto ya se encuentra anulado");
         }
 
-        String razon = request != null && request.getRazonAnulacion() != null ? request.getRazonAnulacion().trim() : "";
+        String razon = request != null ? request.getRazonAnulacion().trim() : "";
         gastoCajaRepository.anular(id, razon);
 
         String logMessage = "Gasto ID " + id + " anulado.";
@@ -86,6 +86,7 @@ public class GastoCajaService {
      * Date params (year, month, day) are all nullable; omitting them widens the filter.
      */
     public PageResponse<GastoCaja> obtenerGastos(Long page, Long size, Integer year, Integer month, Integer day) {
+        size = Math.min(size, 100L);
         Long totalElements = gastoCajaRepository.countAll(year, month, day);
         Long totalPages    = (long) Math.ceil((double) totalElements / size);
         Long offset        = page * size;

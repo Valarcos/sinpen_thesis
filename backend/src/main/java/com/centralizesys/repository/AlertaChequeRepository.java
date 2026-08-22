@@ -23,25 +23,21 @@ public class AlertaChequeRepository {
     }
 
     private final RowMapper<AlertaCheque> rowMapper = (rs, rowNum) -> {
-        AlertaCheque ac = new AlertaCheque(
-                rs.getLong("id"),
-                rs.getLong("venta_id"),
-                rs.getDouble("monto"),
-                rs.getDate("fecha_cobro").toLocalDate(),
-                rs.getString("estado"),
-                rs.getObject("pago_venta_id") != null ? rs.getLong("pago_venta_id") : null,
-                null // default to null for simple queries
-        );
-        try {
-            ac.setMetodoPagoNombre(rs.getString("metodo_pago_nombre"));
-        } catch (java.sql.SQLException e) {
-            // Field not present in simple queries, ignore
-        }
+        AlertaCheque ac = new AlertaCheque();
+        ac.setId(rs.getLong("id"));
+        ac.setVentaId(rs.getLong("venta_id"));
+        ac.setMonto(rs.getDouble("monto"));
+        ac.setFechaCobro(rs.getDate("fecha_cobro").toLocalDate());
+        ac.setEstado(rs.getString("estado"));
+        ac.setPagoVentaId(rs.getObject("pago_venta_id") != null ? rs.getLong("pago_venta_id") : null);
+        ac.setTipoOrigen(rs.getString("tipo_origen"));
+        ac.setPagoDeudaId(rs.getObject("pago_deuda_id") != null ? rs.getLong("pago_deuda_id") : null);
+        ac.setMetodoPagoNombre(rs.getString("metodo_pago_nombre"));
         return ac;
     };
 
     public Long save(AlertaCheque alerta) {
-        String sql = "INSERT INTO alertas_cheques (venta_id, monto, fecha_cobro, estado, pago_venta_id) VALUES (?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO alertas_cheques (venta_id, monto, fecha_cobro, estado, pago_venta_id, tipo_origen, pago_deuda_id) VALUES (?, ?, ?, ?, ?, ?, ?)";
         KeyHolder keyHolder = new GeneratedKeyHolder();
 
         jdbcTemplate.update(connection -> {
@@ -54,6 +50,16 @@ public class AlertaChequeRepository {
                 ps.setLong(5, alerta.getPagoVentaId());
             } else {
                 ps.setNull(5, java.sql.Types.INTEGER);
+            }
+            if (alerta.getTipoOrigen() != null) {
+                ps.setString(6, alerta.getTipoOrigen());
+            } else {
+                ps.setString(6, "VENTA");
+            }
+            if (alerta.getPagoDeudaId() != null) {
+                ps.setLong(7, alerta.getPagoDeudaId());
+            } else {
+                ps.setNull(7, java.sql.Types.INTEGER);
             }
             return ps;
         }, keyHolder);
@@ -82,12 +88,12 @@ public class AlertaChequeRepository {
     }
 
     public List<AlertaCheque> findPendingExpiredOrToday() {
-        String sql = "SELECT * FROM alertas_cheques WHERE estado = 'PENDIENTE' AND fecha_cobro <= CURRENT_DATE ORDER BY fecha_cobro ASC";
+        String sql = "SELECT ac.*, NULL as metodo_pago_nombre FROM alertas_cheques ac WHERE ac.estado = 'PENDIENTE' AND ac.fecha_cobro <= CURRENT_DATE ORDER BY ac.fecha_cobro ASC";
         return jdbcTemplate.query(sql, rowMapper);
     }
 
     public Optional<AlertaCheque> findById(Long id) {
-        String sql = "SELECT * FROM alertas_cheques WHERE id = ?";
+        String sql = "SELECT ac.*, NULL as metodo_pago_nombre FROM alertas_cheques ac WHERE ac.id = ?";
         List<AlertaCheque> results = jdbcTemplate.query(sql, rowMapper, id);
         return results.isEmpty() ? Optional.empty() : Optional.of(results.getFirst());
     }
@@ -95,6 +101,26 @@ public class AlertaChequeRepository {
     public void updateEstadoAndPagoVentaId(Long id, String nuevoEstado, Long pagoVentaId) {
         String sql = "UPDATE alertas_cheques SET estado = ?, pago_venta_id = ? WHERE id = ?";
         jdbcTemplate.update(sql, nuevoEstado, pagoVentaId, id);
+    }
+
+    public int updateEstadoAndPagoVentaIdAtomic(Long id, String nuevoEstado, Long pagoVentaId, String estadoEsperado) {
+        String sql = "UPDATE alertas_cheques SET estado = ?, pago_venta_id = ? WHERE id = ? AND estado = ?";
+        return jdbcTemplate.update(sql, nuevoEstado, pagoVentaId, id, estadoEsperado);
+    }
+
+    public void updateEstadoAndPagoDeudaId(Long id, String nuevoEstado, Long pagoDeudaId) {
+        String sql = "UPDATE alertas_cheques SET estado = ?, pago_deuda_id = ? WHERE id = ?";
+        jdbcTemplate.update(sql, nuevoEstado, pagoDeudaId, id);
+    }
+
+    public int updateEstadoAndPagoDeudaIdAtomic(Long id, String nuevoEstado, Long pagoDeudaId, String estadoEsperado) {
+        String sql = "UPDATE alertas_cheques SET estado = ?, pago_deuda_id = ? WHERE id = ? AND estado = ?";
+        return jdbcTemplate.update(sql, nuevoEstado, pagoDeudaId, id, estadoEsperado);
+    }
+
+    public int updateEstadoAtomic(Long id, String nuevoEstado, String estadoEsperado) {
+        String sql = "UPDATE alertas_cheques SET estado = ? WHERE id = ? AND estado = ?";
+        return jdbcTemplate.update(sql, nuevoEstado, id, estadoEsperado);
     }
 
     /**
@@ -105,5 +131,10 @@ public class AlertaChequeRepository {
         String sql = "SELECT COALESCE(SUM(monto), 0) FROM alertas_cheques WHERE venta_id = ? AND estado = 'PENDIENTE'";
         Double result = jdbcTemplate.queryForObject(sql, Double.class, ventaId);
         return result != null ? result : 0.0;
+    }
+
+    public void cancelarChequesPendientesByVentaId(Long ventaId) {
+        String sql = "UPDATE alertas_cheques SET estado = 'ANULADA' WHERE venta_id = ? AND estado = 'PENDIENTE'";
+        jdbcTemplate.update(sql, ventaId);
     }
 }

@@ -31,8 +31,8 @@ public class AuditoriaController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end) {
 
-        LocalDateTime startParam = (start != null) ? start : LocalDateTime.now(java.time.ZoneId.systemDefault()).minusDays(15);
-        LocalDateTime endParam = (end != null) ? end : LocalDateTime.now(java.time.ZoneId.systemDefault());
+        LocalDateTime startParam = (start != null) ? start : LocalDateTime.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires")).minusDays(15);
+        LocalDateTime endParam = (end != null) ? end : LocalDateTime.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires"));
 
         List<Auditoria> logs = auditoriaService.findByDateRange(startParam, endParam);
         return ResponseEntity.ok(logs);

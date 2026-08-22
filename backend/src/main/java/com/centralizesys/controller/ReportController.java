@@ -26,7 +26,7 @@ public class ReportController {
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
 
-        LocalDate now = LocalDate.now(ZoneId.systemDefault());
+        LocalDate now = LocalDate.now(ZoneId.of("America/Argentina/Buenos_Aires"));
         int y = year != null ? year : now.getYear();
         int m = month != null ? month : now.getMonthValue();
 
@@ -48,7 +48,7 @@ public class ReportController {
             @RequestParam(required = false) Integer month,
             @RequestParam(required = false) Integer day) {
 
-        LocalDate now = LocalDate.now(ZoneId.systemDefault());
+        LocalDate now = LocalDate.now(ZoneId.of("America/Argentina/Buenos_Aires"));
         Integer resolvedYear  = year  != null ? year  : now.getYear();
         Integer resolvedMonth = month; // null means "full year"
         Integer resolvedDay   = day;   // null means "full month"

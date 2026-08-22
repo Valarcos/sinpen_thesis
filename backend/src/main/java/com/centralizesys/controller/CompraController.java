@@ -21,6 +21,7 @@ public class CompraController {
      * Registers a new incoming stock purchase.
      * Expects all products to already exist (variants created if necessary).
      */
+    @com.centralizesys.aspect.Idempotent
     @PostMapping
     public ResponseEntity<CompraResponse> registrarCompra(@RequestBody CompraRequest request) {
         request.setUsuarioId(com.centralizesys.security.SecurityUtils.getAuthenticatedUserId());

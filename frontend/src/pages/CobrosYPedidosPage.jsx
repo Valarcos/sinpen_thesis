@@ -609,13 +609,15 @@ export default function CobrosYPedidosPage() {
     const handleEditPedido = async (item) => {
         try {
             toast.loading("Cargando pedido...", { id: "edit-toast" });
-            const [saleRes, pagosRes] = await Promise.all([
+            const [saleRes, pagosRes, chequesRes] = await Promise.all([
                 api.get(`/ventas/${item.id_referencia}`),
-                api.get(`/ventas/${item.id_referencia}/pagos`)
+                api.get(`/ventas/${item.id_referencia}/pagos`),
+                api.get(`/alertas/cheques/venta/${item.id_referencia}`)
             ]);
 
             const saleData = saleRes.data;
             saleData.pagos = pagosRes.data;
+            saleData.cheques = chequesRes.data;
 
             toast.dismiss("edit-toast");
             navigate('/ventas', { state: { pendingSaleToEdit: saleData } });

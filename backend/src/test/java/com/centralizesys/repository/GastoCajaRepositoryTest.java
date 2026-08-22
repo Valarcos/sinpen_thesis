@@ -49,11 +49,12 @@ class GastoCajaRepositoryTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("save - enforces constraints like missing monto")
+    @DisplayName("save - enforces constraints like missing motivo")
     void save_FailsConstraints() {
         GastoCaja gasto = new GastoCaja();
-        gasto.setMotivo("Insumos");
-        gasto.setFechaGasto(LocalDateTime.of(2026, Month.OCTOBER, 15, 10, 0));
+        // gasto.setMotivo(null); // Missing required field
+        gasto.setMonto(100.0);
+        gasto.setFechaGasto(LocalDateTime.of(2026, java.time.Month.OCTOBER, 15, 10, 0));
         gasto.setFechaRegistro(LocalDateTime.now());
 
         // Exception type might vary based on DB driver mapping, usually DataIntegrityViolationException for NOT NULL

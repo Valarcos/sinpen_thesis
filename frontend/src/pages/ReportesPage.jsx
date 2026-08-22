@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import api from '../services/api';
 import { formatCurrency } from '../utils/format';
 import toast from 'react-hot-toast';
@@ -14,6 +14,12 @@ export default function ReportesPage() {
 
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
+    const isMounted = useRef(true);
+
+    useEffect(() => {
+        isMounted.current = true;
+        return () => { isMounted.current = false; };
+    }, []);
 
     const filterParams = useMemo(() => {
         const params = {};
@@ -35,12 +41,16 @@ export default function ReportesPage() {
         setLoading(true);
         try {
             const res = await api.get('/reportes/estadisticas', { params: filterParams });
-            setStats(res.data);
+            if (isMounted.current) {
+                setStats(res.data);
+            }
         } catch (error) {
             console.error("Error loading stats:", error);
             toast.error("Error al cargar las estadísticas financieras");
         } finally {
-            setLoading(false);
+            if (isMounted.current) {
+                setLoading(false);
+            }
         }
     }, [filterParams]);
 

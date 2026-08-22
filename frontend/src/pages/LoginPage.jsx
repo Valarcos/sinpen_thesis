@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -8,17 +8,20 @@ export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const isMounted = useRef(true);
     const navigate = useNavigate();
 
     // Display any error message that was persisted by the 401 interceptor
     // before it triggered a hard page redirect. This is the only mechanism
     // that survives a full page reload and guarantees the user sees the failure reason.
     useEffect(() => {
+        isMounted.current = true;
         const pendingError = sessionStorage.getItem('pendingAuthError');
         if (pendingError) {
             sessionStorage.removeItem('pendingAuthError');
             toast.error(pendingError);
         }
+        return () => { isMounted.current = false; };
     }, []);
 
     const handleSubmit = async (e) => {
@@ -34,7 +37,7 @@ export default function LoginPage() {
             return;
         }
 
-        setLoading(true);
+        if (isMounted.current) setLoading(true);
 
         try {
             // IMPORTANT: baseURL is already '/api' (from .env.production).
@@ -56,7 +59,7 @@ export default function LoginPage() {
         } catch (error) {
             console.error('Login error:', error);
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     };
 

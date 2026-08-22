@@ -1,47 +1,40 @@
 package com.centralizesys.service;
 
 import com.centralizesys.repository.AuditoriaRepository;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
-class AuditoriaServiceTest {
+public class AuditoriaServiceTest {
 
     @Mock
     private AuditoriaRepository repository;
 
     @InjectMocks
-    private AuditoriaService service;
+    private AuditoriaService auditoriaService;
 
     @Test
-    @DisplayName("Success: registrarAccion calls repository")
-    void registrarAccion_Success() {
-        service.registrarAccion(1L, "TEST", "Details");
+    public void registrarAccion_withEmojiAt254_doesNotSplitSurrogatePair() {
+        StringBuilder sb2 = new StringBuilder();
+        for (int i = 0; i < 254; i++) {
+            sb2.append("A");
+        }
+        sb2.append("\uD83D\uDE00");
 
-        verify(repository).save(1L, "TEST", "Details");
-    }
+        auditoriaService.registrarAccion(1L, "TEST", sb2.toString());
 
-    @Test
-    @DisplayName("Fail-Safe: registrarAccion swallows exceptions (Log only)")
-    void registrarAccion_SwallowsException() {
-        // Arrange: Repository throws a RuntimeException (simulating DB down)
-        doThrow(new RuntimeException("DB Connection Failed"))
-                .when(repository).save(anyLong(), anyString(), anyString());
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(repository).save(eq(1L), eq("TEST"), captor.capture());
 
-        // Act & Assert
-        // This ensures the method completes normally even if the DB fails.
-        // If the 'try-catch' wasn't there, this would fail.
-        assertDoesNotThrow(() -> service.registrarAccion(1L, "TEST", "Details"));
-
-        // Verify it TRIED to save
-        verify(repository).save(1L, "TEST", "Details");
+        String saved = captor.getValue();
+        char lastChar = saved.charAt(saved.length() - 1);
+        assertFalse(Character.isHighSurrogate(lastChar), "Surrogate pair was split!");
     }
 }

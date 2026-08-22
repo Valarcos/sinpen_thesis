@@ -135,7 +135,7 @@ export default function ProductConfigModal({ isOpen, onClose, onSave, item }) {
         setSubItems(newSubItems);
     };
 
-    const currentTotalQty = subItems.reduce((acc, curr) => acc + curr.quantity, 0);
+    const currentTotalQty = (subItems || []).reduce((acc, curr) => acc + curr.quantity, 0);
     const isValid = currentTotalQty === totalQuantity;
 
     const handleSave = () => {
@@ -173,7 +173,7 @@ export default function ProductConfigModal({ isOpen, onClose, onSave, item }) {
                     </div>
 
                     <div className="config-list-container" ref={listRef}>
-                        {subItems.map((sub, index) => (
+                        {(subItems || []).map((sub, index) => (
                             <div key={index} className="config-row">
                                 <div className="col-qty">
                                     <input
@@ -192,6 +192,7 @@ export default function ProductConfigModal({ isOpen, onClose, onSave, item }) {
                                         <input
                                             type="text"
                                             inputMode="decimal"
+                                            min="0"
                                             className="config-price-input"
                                             value={sub.discount > 0 ? (basePrice - sub.discount).toFixed(2).replace(/\.00$/, '') : basePrice.toFixed(2).replace(/\.00$/, '')}
                                             ref={index === subItems.length - 1 ? lastPriceRef : null}

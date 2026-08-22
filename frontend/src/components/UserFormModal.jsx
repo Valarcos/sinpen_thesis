@@ -14,8 +14,10 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState({});
     const nombreInputRef = useRef(null);
+    const isMounted = useRef(true);
 
     useEffect(() => {
+        isMounted.current = true;
         if (user) {
             setFormData({
                 nombre: user.nombre || '',
@@ -26,6 +28,7 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
         }
         // Focus on first input
         nombreInputRef.current?.focus();
+        return () => { isMounted.current = false; };
     }, [user]);
 
     const validate = () => {
@@ -63,6 +66,7 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        if (loading) return;
         if (!validate()) return;
 
         setLoading(true);
@@ -85,13 +89,12 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
                 });
                 toast.success('Usuario creado correctamente');
             }
-            onSuccess();
+            if (isMounted.current && onSuccess) onSuccess();
         } catch (error) {
             console.error('Error saving user:', error);
-            const message = error.response?.data?.message || 'Error al guardar usuario';
-            toast.error(message);
+            // Error handled by global api interceptor
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     };
 

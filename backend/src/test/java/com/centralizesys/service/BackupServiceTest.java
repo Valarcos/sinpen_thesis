@@ -194,4 +194,44 @@ class BackupServiceTest {
         // Verify auditoriaService was called exactly 10 times (once per file deleted)
         verify(auditoriaService, times(10)).registrarAccion(eq(0L), eq("BACKUP_CLEANUP"), anyString());
     }
+
+    @Test
+    @DisplayName("populateSalesSheet exports Recargo Global correctly without triggering OS execution")
+    void populateSalesSheet_exportsRecargoGlobal() {
+        // GIVEN
+        BackupService service = new BackupService(jdbcTemplate, auditoriaService, productRepository, ventaRepository,
+                compraRepository, deudoresRepository, auditoriaRepository, pathStrategy,
+                "jdbc:postgresql://localhost:5432/test", "testuser", "testpass");
+
+        com.centralizesys.model.sales.Venta venta = new com.centralizesys.model.sales.Venta();
+        venta.setId(1L);
+        venta.setFecha(java.time.LocalDateTime.now());
+        venta.setClienteNombre("Test Client");
+        venta.setTipoVenta("MINORISTA");
+        venta.setDescuentoGlobal(50.0);
+        venta.setRecargoGlobal(120.0); // The critical new field
+        venta.setTotalVenta(1000.0);
+        venta.setUsuarioId(99L);
+
+        when(ventaRepository.findAll()).thenReturn(java.util.List.of(venta));
+
+        org.apache.poi.ss.usermodel.Workbook workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
+        org.apache.poi.ss.usermodel.CellStyle dummyStyle = workbook.createCellStyle();
+
+        // WHEN
+        service.populateSalesSheet(workbook, dummyStyle, dummyStyle, dummyStyle, dummyStyle, dummyStyle);
+
+        // THEN
+        org.apache.poi.ss.usermodel.Sheet sheet = workbook.getSheet("Ventas");
+        assertNotNull(sheet, "Ventas sheet should be created");
+
+        // Header Row (Row 0)
+        org.apache.poi.ss.usermodel.Row headerRow = sheet.getRow(0);
+        assertEquals("Recargo Global", headerRow.getCell(5).getStringCellValue(), "Header index 5 should be Recargo Global");
+
+        // Data Row (Row 1)
+        org.apache.poi.ss.usermodel.Row dataRow = sheet.getRow(1);
+        assertEquals(120.0, dataRow.getCell(5).getNumericCellValue(), "Data index 5 should map to Recargo Global value");
+        assertEquals(1000.0, dataRow.getCell(6).getNumericCellValue(), "Data index 6 should map to Total Venta");
+    }
 }

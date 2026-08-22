@@ -1,5 +1,6 @@
 package com.centralizesys.service;
 
+import com.centralizesys.exception.BusinessRuleException;
 import com.centralizesys.exception.InfrastructureException;
 import com.centralizesys.model.dto.BackupFileDTO;
 import com.centralizesys.model.product.Product;
@@ -117,7 +118,7 @@ public class BackupService {
         if (userId == null)
             userId = 0L;
 
-        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires"));
         String timestamp = now.format(FMT_FILE);
         String prefix = type == BackupType.DAILY ? "daily_" : "manual_";
 
@@ -211,7 +212,9 @@ public class BackupService {
     }
 
     public void restoreDatabase(File sqlFile) {
-        com.centralizesys.config.MaintenanceInterceptor.isMaintenanceMode.set(true);
+        if (!com.centralizesys.config.MaintenanceInterceptor.isMaintenanceMode.compareAndSet(false, true)) {
+            throw new BusinessRuleException("Una restauración ya está en progreso. Por favor, espere.");
+        }
         try {
             log.info("Triggering pre-restore safety net backup.");
             performSafetyNetBackup();
@@ -481,9 +484,9 @@ public class BackupService {
             try {
                 date = LocalDateTime.ofInstant(
                         Instant.ofEpochMilli(Files.getLastModifiedTime(path).toMillis()),
-                        ZoneId.systemDefault());
+                        ZoneId.of("America/Argentina/Buenos_Aires"));
             } catch (IOException e) {
-                date = LocalDateTime.now(ZoneId.systemDefault()); // Fallback
+                date = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")); // Fallback
             }
         }
         try {
@@ -546,14 +549,14 @@ public class BackupService {
     }
 
     private void processRetentionPolicy(List<File> files) {
-        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires"));
         Set<Integer> yearsKept = new HashSet<>();
 
         // Process files older than retention period
         List<File> filesToDelete = files.stream()
                 .filter(f -> {
                     LocalDateTime fileDate = parseDateFromFilename(f.getName());
-                    return fileDate != null && ChronoUnit.DAYS.between(fileDate.atZone(ZoneId.systemDefault()), now.atZone(ZoneId.systemDefault())) > RETENTION_DAYS_DAILY;
+                    return fileDate != null && ChronoUnit.DAYS.between(fileDate.atZone(ZoneId.of("America/Argentina/Buenos_Aires")), now.atZone(ZoneId.of("America/Argentina/Buenos_Aires"))) > RETENTION_DAYS_DAILY;
                 })
 
                 .filter(f -> shouldDeleteArchivedFile(Objects.requireNonNull(parseDateFromFilename(f.getName())), now,
@@ -604,7 +607,7 @@ public class BackupService {
 
 
     public void removeMidDayBackup() {
-        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires"));
         Path dir = Paths.get(pathStrategy.getDailyDir());
         if (!Files.exists(dir)) return;
 
@@ -735,10 +738,10 @@ public class BackupService {
         }
     }
 
-    private void populateSalesSheet(Workbook workbook, CellStyle headerStyle, CellStyle oddStyle, CellStyle evenStyle,
-                                    CellStyle currOdd, CellStyle currEven) {
+    void populateSalesSheet(Workbook workbook, CellStyle headerStyle, CellStyle oddStyle, CellStyle evenStyle,
+                            CellStyle currOdd, CellStyle currEven) {
         Sheet sheet = workbook.createSheet("Ventas");
-        String[] headers = { "ID", FECHA, "Cliente", "Tipo Venta", "Desc. Global", "Total", "Usuario ID" };
+        String[] headers = { "ID", FECHA, "Cliente", "Tipo Venta", "Desc. Global", "Recargo Global", "Total", "Usuario ID" };
         createHeader(sheet, headers, headerStyle);
 
         sheet.setColumnWidth(0, 15 * 256); // ID
@@ -746,8 +749,9 @@ public class BackupService {
         sheet.setColumnWidth(2, 40 * 256); // Cliente
         sheet.setColumnWidth(3, 15 * 256); // Tipo Venta
         sheet.setColumnWidth(4, 15 * 256); // Desc. Global
-        sheet.setColumnWidth(5, 15 * 256); // Total
-        sheet.setColumnWidth(6, 12 * 256); // Usuario ID
+        sheet.setColumnWidth(5, 15 * 256); // Recargo Global
+        sheet.setColumnWidth(6, 15 * 256); // Total
+        sheet.setColumnWidth(7, 12 * 256); // Usuario ID
 
         List<Venta> sales = ventaRepository.findAll();
         int rowNum = 1;
@@ -762,8 +766,9 @@ public class BackupService {
             createTextCell(row, 2, v.getClienteNombre(), base);
             createTextCell(row, 3, v.getTipoVenta(), base);
             createNumericCell(row, 4, v.getDescuentoGlobal(), curr);
-            createNumericCell(row, 5, v.getTotalVenta(), curr);
-            createTextCell(row, 6, v.getUsuarioId(), base);
+            createNumericCell(row, 5, v.getRecargoGlobal() != null ? v.getRecargoGlobal() : 0.0, curr);
+            createNumericCell(row, 6, v.getTotalVenta(), curr);
+            createTextCell(row, 7, v.getUsuarioId(), base);
         }
     }
 

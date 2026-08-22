@@ -339,4 +339,37 @@ class VentaRepositoryTest extends BaseIntegrationTest {
         v.setUsuarioId(userId);
         ventaRepository.saveVenta(v);
     }
+
+    @Test
+    @DisplayName("updatePendingSaleHeader - Updates all required fields")
+    void updatePendingSaleHeader_UpdatesAllFields() {
+        // Arrange
+        Long userId = createTestUser();
+        Venta venta = new Venta();
+        venta.setFecha(LocalDateTime.of(2026, java.time.Month.JANUARY, 1, 12, 0));
+        venta.setClienteNombre("Old Client");
+        venta.setTotalVenta(100.00);
+        venta.setDescuentoGlobal(0.0);
+        venta.setRecargoGlobal(0.0);
+        venta.setTipoVenta("MINORISTA");
+        venta.setEstado("PENDIENTE");
+        venta.setUsuarioId(userId);
+        Long id = ventaRepository.saveVenta(venta);
+        // Insert a client to satisfy foreign key constraint on update
+        jdbcTemplate.update("INSERT INTO clientes (id, nombre, activo, saldo_a_favor) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING", 99L, "New Client", true, 0.0);
+
+        // Act
+        ventaRepository.updatePendingSaleHeader(id, 200.0, 10.0, 5.0, 0.0, 99L, "New Client", "MAYORISTA");
+
+        // Assert
+        Optional<Venta> updatedOpt = ventaRepository.findById(id);
+        assertThat(updatedOpt).isPresent();
+        Venta updated = updatedOpt.get();
+        assertThat(updated.getTotalVenta()).isEqualTo(200.0);
+        assertThat(updated.getDescuentoGlobal()).isEqualTo(10.0);
+        assertThat(updated.getRecargoGlobal()).isEqualTo(5.0);
+        assertThat(updated.getClienteId()).isEqualTo(99L);
+        assertThat(updated.getClienteNombre()).isEqualTo("New Client");
+        assertThat(updated.getTipoVenta()).isEqualTo("MAYORISTA");
+    }
 }

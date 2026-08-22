@@ -258,13 +258,20 @@ public class ReportRepository {
                 SELECT pv.monto AS monto_total
                 FROM pagos_venta pv
                 JOIN ventas v ON pv.venta_id = v.id
-                WHERE v.estado NOT IN ('ANULADA', 'CANCELADA_PENDIENTE') AND pv.anulado = false
+                JOIN metodos_pago mp ON pv.metodo_pago_id = mp.id
+                WHERE v.estado NOT IN ('ANULADA', 'CANCELADA_PENDIENTE') AND pv.anulado = false AND mp.acronimo != 'SALDO'
             """ + buildJoinDateFilter("pv.fecha_pago", dateFilter) + """
                 UNION ALL
                 SELECT pd.monto AS monto_total
                 FROM pagos_deuda pd
-                WHERE pd.anulado = false
+                JOIN metodos_pago mp ON pd.metodo_pago_id = mp.id
+                WHERE pd.anulado = false AND mp.acronimo != 'SALDO'
             """ + buildJoinDateFilter("pd.fecha_pago", dateFilter) + """
+                UNION ALL
+                SELECT ac.monto AS monto_total
+                FROM alertas_cheques ac
+                WHERE ac.estado = 'COBRADO'
+            """ + buildJoinDateFilter("ac.fecha_cobro", dateFilter) + """
             ) AS all_cash_in
         """;
 

@@ -1,10 +1,10 @@
 import './LogoutModal.css';
 
-export default function LogoutModal({ isOpen, onConfirm, onCancel }) {
+export default function LogoutModal({ isOpen, onConfirm, onCancel, isLoggingOut }) {
     if (!isOpen) return null;
 
     return (
-        <div className="modal-overlay" onClick={onCancel} role="dialog" aria-modal="true">
+        <div className="modal-overlay" onClick={isLoggingOut ? undefined : onCancel} role="dialog" aria-modal="true">
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                 <h2>¿Cerrar sesión?</h2>
                 <p>¿Está seguro que desea salir del sistema?</p>
@@ -15,6 +15,7 @@ export default function LogoutModal({ isOpen, onConfirm, onCancel }) {
                         onClick={onCancel}
                         autoFocus
                         aria-label="Cancelar cierre de sesión"
+                        disabled={isLoggingOut}
                     >
                         Cancelar
                     </button>
@@ -22,8 +23,9 @@ export default function LogoutModal({ isOpen, onConfirm, onCancel }) {
                         className="primary"
                         onClick={onConfirm}
                         aria-label="Confirmar cierre de sesión"
+                        disabled={isLoggingOut}
                     >
-                        Salir
+                        {isLoggingOut ? 'Saliendo...' : 'Salir'}
                     </button>
                 </div>
             </div>

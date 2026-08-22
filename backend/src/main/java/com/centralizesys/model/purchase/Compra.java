@@ -15,6 +15,10 @@ public class Compra {
     private LocalDateTime fecha; // ISO-8601
     private String proveedor;
     private String nroComprobante;
-    private Double totalCompra;
+    private Double totalCompra = 0.0;
     private Long usuarioId; // Optional, for audit/ownership, company owners buying
+
+    public void setTotalCompra(Double totalCompra) {
+        this.totalCompra = (totalCompra != null) ? totalCompra : 0.0;
+    }
 }

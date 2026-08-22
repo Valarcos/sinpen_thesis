@@ -40,6 +40,44 @@ class BackupControllerTest {
     private com.centralizesys.security.JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Test
+    @DisplayName("restoreFromUpload calls backupService and cleans up")
+    void restoreFromUpload_CallsService() throws Exception {
+        Long userId = 99L;
+
+        // Mock Security Context
+        CustomUserDetails mockUser = mock(CustomUserDetails.class);
+        when(mockUser.getId()).thenReturn(userId);
+
+        Authentication auth = mock(Authentication.class);
+        when(auth.getPrincipal()).thenReturn(mockUser);
+
+        SecurityContext securityContext = mock(SecurityContext.class);
+        when(securityContext.getAuthentication()).thenReturn(auth);
+        SecurityContextHolder.setContext(securityContext);
+
+        org.springframework.mock.web.MockMultipartFile file = new org.springframework.mock.web.MockMultipartFile(
+                "file",
+                "test-backup.sql",
+                "text/plain",
+                "SQL DATA".getBytes()
+        );
+
+        try {
+            // Act
+            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/api/backups/upload-restore")
+                            .file(file)
+                            .param("confirm", "true"))
+                    .andExpect(status().isOk());
+
+            // Assert
+            verify(backupService).restoreDatabase(any(java.io.File.class));
+
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
     @DisplayName("restoreDatabase uses SecurityContext ID")
     void restoreDatabase_UsesSecurityContext() throws Exception {
         Long userId = 33L;

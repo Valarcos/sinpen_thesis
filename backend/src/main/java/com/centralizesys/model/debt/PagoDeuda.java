@@ -13,7 +13,11 @@ public class PagoDeuda {
     private Long id;
     private Long deudaId;
     private Long metodoPagoId;
-    private Double monto;
+    private Double monto = 0.0;
+
+    public void setMonto(Double monto) {
+        this.monto = (monto != null) ? monto : 0.0;
+    }
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime fechaPago;
     private String observaciones;

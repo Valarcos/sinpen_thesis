@@ -77,7 +77,7 @@ public class CompraService {
         // 7. Return Response
         return new CompraResponse(
                 compraId,
-                LocalDateTime.now(ZoneId.systemDefault()),
+                LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")),
                 request.getProveedor(),
                 request.getNroComprobante(),
                 result.getTotalCompra(),
@@ -178,7 +178,7 @@ public class CompraService {
             throw new BusinessRuleException(
                     "La cantidad debe ser mayor a cero. Producto ID: " + item.getProductoId());
         }
-        if (item.getCostoUnitario() == null || item.getCostoUnitario() <= 0) {
+        if (item.getCostoUnitario() <= 0) {
             throw new BusinessRuleException(
                     "El costo unitario debe ser mayor a cero. Producto ID: " + item.getProductoId());
         }
@@ -209,11 +209,21 @@ public class CompraService {
         return Math.abs(a - b) < 0.001;
     }
 
+    private String safeTruncate(String str, int maxLen) {
+        if (str == null || str.length() <= maxLen) return str;
+        if (Character.isHighSurrogate(str.charAt(maxLen - 1))) {
+            return str.substring(0, maxLen - 1);
+        }
+        return str.substring(0, maxLen);
+    }
+
     private Long saveTransaction(CompraRequest request, ProcessedPurchaseResult result) {
         Compra compra = new Compra();
-        compra.setFecha(LocalDateTime.now(ZoneId.systemDefault()));
-        compra.setProveedor(request.getProveedor());
-        compra.setNroComprobante(request.getNroComprobante());
+        compra.setFecha(LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")));
+
+        compra.setProveedor(safeTruncate(request.getProveedor(), 255));
+        compra.setNroComprobante(safeTruncate(request.getNroComprobante(), 255));
+
         compra.setUsuarioId(request.getUsuarioId());
         compra.setTotalCompra(result.getTotalCompra());
 

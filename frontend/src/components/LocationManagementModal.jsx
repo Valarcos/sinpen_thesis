@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 
@@ -7,26 +7,30 @@ export default function LocationManagementModal({ onClose, onLocationAdded }) {
     const [newLocationName, setNewLocationName] = useState('');
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
+    const isMounted = useRef(true);
 
     useEffect(() => {
+        isMounted.current = true;
         fetchLocations();
+        return () => { isMounted.current = false; };
     }, []);
 
     const fetchLocations = async () => {
         try {
-            setLoading(true);
+            if (isMounted.current) setLoading(true);
             const response = await api.get('/locations');
-            setLocations(response.data);
+            if (isMounted.current) setLocations(response.data);
         } catch (error) {
             console.error('Error fetching locations:', error);
-            toast.error('Error al cargar ubicaciones');
+            // Error handled by global interceptor, no duplicate toast
         } finally {
-            setLoading(false);
+            if (isMounted.current) setLoading(false);
         }
     };
 
     const handleCreate = async (e) => {
         e.preventDefault();
+        if (submitting) return;
         if (!newLocationName.trim()) return;
 
         // Frontend validation for number-only as per backend rule
@@ -36,19 +40,20 @@ export default function LocationManagementModal({ onClose, onLocationAdded }) {
         }
 
         try {
-            setSubmitting(true);
+            if (isMounted.current) setSubmitting(true);
             const response = await api.post('/locations', { nombre: newLocationName });
             toast.success('Estantería agregada correctamente');
-            setNewLocationName('');
+            if (isMounted.current) setNewLocationName('');
             fetchLocations(); // Refresh list in modal
             if (onLocationAdded) {
                 onLocationAdded(response.data); // Notify parent to refresh their dropdown
             }
         } catch (error) {
             console.error('Error creating location:', error);
-            // Error handled by api interceptor
+            // Vector 2: Force re-fetch on failure to sync state
+            fetchLocations();
         } finally {
-            setSubmitting(false);
+            if (isMounted.current) setSubmitting(false);
         }
     };
 
@@ -82,7 +87,7 @@ export default function LocationManagementModal({ onClose, onLocationAdded }) {
                             <p style={{ padding: '0.5rem', textAlign: 'center', color: '#666' }}>No hay ubicaciones registradas.</p>
                         ) : (
                             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                                {locations.map(loc => (
+                                {(locations || []).map(loc => (
                                     <li key={loc.id} style={{
                                         padding: '0.5rem',
                                         borderBottom: '1px solid #f0f0f0',

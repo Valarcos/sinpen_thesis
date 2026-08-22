@@ -56,6 +56,38 @@ class VentaIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("Should persist Global Surcharge correctly")
+    void shouldPersistGlobalSurcharge() {
+        Long userId = createTestUser();
+        Long prodId = createTestProduct("SUR-001", 100.0, 10L);
+
+        VentaRequest request = new VentaRequest();
+        request.setClienteNombre("Surcharge Integration Client");
+        request.setUsuarioId(userId);
+
+        VentaRequest.ItemRequest item = new VentaRequest.ItemRequest();
+        item.setProductoId(prodId);
+        item.setCantidad(2L); // 200
+        request.setItems(List.of(item));
+        request.setRecargoGlobal(30.0); // 230
+
+        // Full payment
+        VentaRequest.PagoRequest pago = new VentaRequest.PagoRequest();
+        pago.setMetodoPagoId(1L);
+        pago.setMonto(230.0);
+        request.setPagos(List.of(pago));
+
+        VentaResponse response = ventaService.registrarVenta(request);
+
+        assertEquals(230.0, response.getTotalVenta());
+        assertEquals(30.0, response.getRecargoGlobal());
+
+        // Verify direct DB persistence
+        Double dbSurcharge = jdbcTemplate.queryForObject("SELECT recargo_global FROM ventas WHERE id = ?", Double.class, response.getId());
+        assertEquals(30.0, dbSurcharge);
+    }
+
+    @Test
     @DisplayName("Should persist Global Discount correctly")
     void shouldPersistGlobalDiscount() {
         // 1. Setup Data

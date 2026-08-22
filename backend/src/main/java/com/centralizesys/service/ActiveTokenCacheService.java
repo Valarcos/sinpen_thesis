@@ -114,7 +114,7 @@ public class ActiveTokenCacheService {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void warmUpCache() {
-        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires"));
         List<ActiveToken> validTokens = activeTokenRepository.findAllValid(now);
         validTokens.forEach(token -> put(token.getJti(), token.getUsuarioId()));
         log.info("Active token cache warmed up with {} valid session(s).", validTokens.size());

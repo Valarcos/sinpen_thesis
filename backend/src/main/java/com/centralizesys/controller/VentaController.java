@@ -30,6 +30,7 @@ public class VentaController {
 
     // --- TRANSACTIONS ---
 
+    @com.centralizesys.aspect.Idempotent
     @PostMapping
     public ResponseEntity<VentaResponse> registrarVenta(@RequestBody VentaRequest request) {
         request.setUsuarioId(SecurityUtils.getAuthenticatedUserId());
@@ -37,6 +38,7 @@ public class VentaController {
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
+    @com.centralizesys.aspect.Idempotent
     @PostMapping("/pendientes")
     public ResponseEntity<Long> crearPendiente(@RequestBody VentaRequest request) {
         Long authenticatedUserId = SecurityUtils.getAuthenticatedUserId();
@@ -44,6 +46,7 @@ public class VentaController {
         return ResponseEntity.status(HttpStatus.CREATED).body(id);
     }
 
+    @com.centralizesys.aspect.Idempotent
     @PostMapping("/{id}/pagos")
     public ResponseEntity<Void> registrarPago(
             @PathVariable Long id,

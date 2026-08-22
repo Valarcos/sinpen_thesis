@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import NegativeStockCorrectionModal from '../components/NegativeStockCorrectionModal';
@@ -13,12 +13,14 @@ export default function DashboardPage() {
     const [pendingCheques, setPendingCheques] = useState([]);
     const [backupWarning, setBackupWarning] = useState(false);
     const [systemAlerts, setSystemAlerts] = useState([]);
+    const isMounted = useRef(true);
     const navigate = useNavigate();
 
     const refreshNegativeStock = async () => {
         try {
             const stockRes = await api.get('/productos/alerts');
             const data = stockRes.data && stockRes.data.length > 0 ? stockRes.data : [];
+            if (!isMounted.current) return;
             setNegativeStockProducts(data);
             if (data.length === 0) {
                 setShowCorrectionModal(false);
@@ -29,6 +31,7 @@ export default function DashboardPage() {
     };
 
     useEffect(() => {
+        isMounted.current = true;
         setUserName(localStorage.getItem('userName') || 'Usuario');
         setUserRole(localStorage.getItem('userRole') || 'EMPLEADO');
 
@@ -41,6 +44,8 @@ export default function DashboardPage() {
                     api.get('/system/alerts').catch(() => ({ data: { alerts: [] } })),
                     api.get('/alertas/cheques').catch(() => ({ data: [] }))
                 ]);
+
+                if (!isMounted.current) return;
 
                 // Negative Stock Alerts — banner shows whenever there are negative products
                 setNegativeStockProducts(stockRes.data && stockRes.data.length > 0 ? stockRes.data : []);
@@ -101,7 +106,10 @@ export default function DashboardPage() {
         // Check every 60 seconds to catch the hour change
         const intervalId = setInterval(checkTime, 60 * 1000);
 
-        return () => clearInterval(intervalId);
+        return () => {
+            clearInterval(intervalId);
+            isMounted.current = false;
+        };
     }, []);
 
     return (
@@ -110,7 +118,7 @@ export default function DashboardPage() {
             <p className="dashboard-subtitle">Sistema operativo y listo</p>
 
             {/* System Critical Alerts (e.g., failed DB restoration) */}
-            {systemAlerts.map((alert, idx) => (
+            {(systemAlerts || []).map((alert, idx) => (
                 <div key={idx} className="alert-card error">
                     <span className="alert-icon">🚨</span>
                     <div className="alert-content">

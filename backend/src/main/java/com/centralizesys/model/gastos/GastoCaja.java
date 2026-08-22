@@ -11,7 +11,11 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class GastoCaja {
     private Long id;
-    private Double monto;
+    private Double monto = 0.0;
+
+    public void setMonto(Double monto) {
+        this.monto = (monto != null) ? monto : 0.0;
+    }
     private String motivo;
     private LocalDateTime fechaGasto;
     private LocalDateTime fechaRegistro;
