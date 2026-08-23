@@ -27,8 +27,12 @@ public class PendingCartCleanupTask {
      * Runs every day at midnight (Argentina time) to clean up PENDIENTE carts older than 48 hours.
      * Prevents funds (Saldo a Favor) from being locked indefinitely in abandoned carts.
      */
-    @Scheduled(cron = "0 0 0 * * *", zone = "America/Argentina/Buenos_Aires")
+    //TODO: Decide how to implement and use this cron job, it was disabled for now to avoid problems with pending sales.
+    // @Scheduled(cron = "0 0 0 * * *", zone = "America/Argentina/Buenos_Aires")
     public void cleanupStalePendingCarts() {
+        logger.info("PendingCartCleanupTask is temporarily disabled per user request.");
+        if (true) return;
+
         logger.info("Starting PendingCartCleanupTask: checking for abandoned carts...");
 
         LocalDateTime cutoffDate = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")).minusHours(48);
