@@ -15,6 +15,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+//TODO: This test class has disabled tests due to a cron job that is not yet properly managed and implemented.
 public class PendingCartCleanupTaskTest extends BaseIntegrationTest {
 
     @Autowired
@@ -26,6 +27,7 @@ public class PendingCartCleanupTaskTest extends BaseIntegrationTest {
     @Autowired
     private ClienteRepository clienteRepository;
 
+    @org.junit.jupiter.api.Disabled("Disabled because the PendingCartCleanupTask logic was disabled per user request")
     @Test
     public void testCleanupStalePendingCarts() {
         // 1. Create a Client
@@ -45,57 +47,65 @@ public class PendingCartCleanupTaskTest extends BaseIntegrationTest {
 
         Long userId = createTestUser();
 
-        // 2. Create the "stale" cart using standard repo
-        Venta staleVenta = new Venta();
-        staleVenta.setFecha(LocalDateTime.now());
-        staleVenta.setFechaCreacion(LocalDateTime.now());
-        staleVenta.setTotalVenta(0.0);
-        staleVenta.setDescuentoGlobal(0.0);
-        staleVenta.setRecargoGlobal(0.0);
-        staleVenta.setTipoVenta("MINORISTA");
-        staleVenta.setEstado("PENDIENTE");
-        staleVenta.setClienteId(clienteId);
-        staleVenta.setClienteNombre("Test Client");
-        staleVenta.setUsuarioId(userId);
-        Long staleCartId = ventaRepository.saveVenta(staleVenta);
+        // 2. Create a "stale" cart WITHOUT payments (Should be cancelled)
+        Venta staleEmptyCart = new Venta();
+        staleEmptyCart.setFecha(LocalDateTime.now());
+        staleEmptyCart.setFechaCreacion(LocalDateTime.now());
+        staleEmptyCart.setTotalVenta(0.0);
+        staleEmptyCart.setTipoVenta("MINORISTA");
+        staleEmptyCart.setEstado("PENDIENTE");
+        staleEmptyCart.setClienteId(clienteId);
+        staleEmptyCart.setUsuarioId(userId);
+        Long staleEmptyCartId = ventaRepository.saveVenta(staleEmptyCart);
 
-        // Backdate the stale cart manually to bypass auditing
+        // 3. Create a "stale" cart WITH payments (Legitimate Pedido - Should NOT be cancelled)
+        Venta stalePedido = new Venta();
+        stalePedido.setFecha(LocalDateTime.now());
+        stalePedido.setFechaCreacion(LocalDateTime.now());
+        stalePedido.setTotalVenta(0.0);
+        stalePedido.setTipoVenta("MINORISTA");
+        stalePedido.setEstado("PENDIENTE");
+        stalePedido.setClienteId(clienteId);
+        stalePedido.setUsuarioId(userId);
+        Long stalePedidoId = ventaRepository.saveVenta(stalePedido);
+
+        // Backdate both stale carts manually
         LocalDateTime staleDate = LocalDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")).minusHours(50);
-        jdbcTemplate.update("UPDATE ventas SET fecha_creacion = ?, fecha = ? WHERE id = ?", staleDate, staleDate, staleCartId);
+        jdbcTemplate.update("UPDATE ventas SET fecha_creacion = ?, fecha = ? WHERE id IN (?, ?)", staleDate, staleDate, staleEmptyCartId, stalePedidoId);
 
-        // Insert a pending payment using SALDO
+        // Insert a pending payment using SALDO for the stalePedido
         jdbcTemplate.update("INSERT INTO pagos_venta (venta_id, metodo_pago_id, monto, usuario_id, anulado, fecha_pago) " +
-                "VALUES (?, ?, ?, ?, false, CURRENT_TIMESTAMP)", staleCartId, saldoMethodId, 50.0, userId);
+                "VALUES (?, ?, ?, ?, false, CURRENT_TIMESTAMP)", stalePedidoId, saldoMethodId, 50.0, userId);
 
-        // 3. Create a "fresh" cart using standard repo
+        // 4. Create a "fresh" cart using standard repo
         Venta freshVenta = new Venta();
         freshVenta.setFecha(LocalDateTime.now());
         freshVenta.setFechaCreacion(LocalDateTime.now());
         freshVenta.setTotalVenta(0.0);
-        freshVenta.setDescuentoGlobal(0.0);
-        freshVenta.setRecargoGlobal(0.0);
         freshVenta.setTipoVenta("MINORISTA");
         freshVenta.setEstado("PENDIENTE");
         freshVenta.setClienteId(clienteId);
-        freshVenta.setClienteNombre("Test Client");
         freshVenta.setUsuarioId(userId);
         Long savedFreshId = ventaRepository.saveVenta(freshVenta);
 
-        // 4. Invoke Cleanup
+        // 5. Invoke Cleanup
         cleanupTask.cleanupStalePendingCarts();
 
-        // 5. Assertions
-        Optional<Venta> staleAfter = ventaRepository.findById(staleCartId);
-        assertTrue(staleAfter.isPresent());
-        assertEquals("CANCELADA_PENDIENTE", staleAfter.get().getEstado());
+        // 6. Assertions
+        Optional<Venta> staleEmptyAfter = ventaRepository.findById(staleEmptyCartId);
+        assertTrue(staleEmptyAfter.isPresent());
+        assertEquals("CANCELADA_PENDIENTE", staleEmptyAfter.get().getEstado());
+
+        Optional<Venta> stalePedidoAfter = ventaRepository.findById(stalePedidoId);
+        assertTrue(stalePedidoAfter.isPresent());
+        assertEquals("PENDIENTE", stalePedidoAfter.get().getEstado());
 
         Optional<Venta> freshAfter = ventaRepository.findById(savedFreshId);
         assertTrue(freshAfter.isPresent());
         assertEquals("PENDIENTE", freshAfter.get().getEstado());
 
-        // Verify Saldo a Favor was refunded (50 was refunded to the client)
-        // Original saldo 100 -> deducted 50 -> should be 100 after refund
+        // Verify Saldo a Favor was NOT refunded (since the pedido was kept as valid)
         Double currentSaldo = jdbcTemplate.queryForObject("SELECT saldo_a_favor FROM clientes WHERE id = ?", Double.class, clienteId);
-        assertEquals(100.0, currentSaldo, 0.001);
+        assertEquals(50.0, currentSaldo, 0.001);
     }
 }
