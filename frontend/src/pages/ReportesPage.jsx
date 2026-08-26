@@ -180,25 +180,30 @@ export default function ReportesPage() {
                                 <div className="sub-value">Ingresos + Ventas Pendientes</div>
                             </div>
 
-                            <div className="stat-card card-debt">
-                                <h3>Deudas Pendientes</h3>
-                                <div className="value">{formatCurrency(rc.deudasPendientes)}</div>
-                                <div className="sub-value">Total de fiados y cheques activos</div>
-                            </div>
-
-                            {/* TODO: If clients prefer a unified "Cuentas por Cobrar" metric instead of separate "Ventas Pendientes" and "Deudas Pendientes", uncomment this block and remove the Ventas Pendientes & Deudas Pendientes blocks above.
-                            <div className="stat-card card-debt">
-                                <h3>Cuentas por Cobrar</h3>
-                                <div className="value">{formatCurrency(rc.ventasPendientes + rc.deudasPendientes)}</div>
-                                <div className="sub-value">Saldos de pedidos, fiados y cheques activos</div>
-                            </div>
-                            */}
-
-                            {/* Group 3: Operations */}
+                            {/* Group 3: Operations (Moved up for better grid layout) */}
                             <div className="stat-card">
                                 <h3>Volumen de Productos</h3>
                                 <div className="value">{rc.productosVendidos} <span style={{color: '#64748b'}}>vendidos</span></div>
                                 <div className="sub-value">{rc.productosComprados} comprados al proveedor</div>
+                            </div>
+
+                            {/* Group 4: Risk and Receivables */}
+                            <div className="stat-card card-debt">
+                                <h3>Cuentas Corrientes</h3>
+                                <div className="value">{formatCurrency(rc.deudasCtaCte || 0)}</div>
+                                <div className="sub-value">Total de fiados activos de clientes</div>
+                            </div>
+
+                            <div className="stat-card card-debt">
+                                <h3>Cheques por Cobrar</h3>
+                                <div className="value">{formatCurrency(rc.chequesPorCobrar || 0)}</div>
+                                <div className="sub-value">Cheques con fecha de cobro a futuro o de hoy</div>
+                            </div>
+
+                            <div className="stat-card card-debt" style={{ borderColor: rc.chequesExpirados > 0 ? '#ef4444' : undefined, backgroundColor: rc.chequesExpirados > 0 ? '#fef2f2' : undefined }}>
+                                <h3 style={{ color: rc.chequesExpirados > 0 ? '#ef4444' : undefined }}>Cheques Expirados</h3>
+                                <div className="value" style={{ color: rc.chequesExpirados > 0 ? '#ef4444' : undefined }}>{formatCurrency(rc.chequesExpirados || 0)}</div>
+                                <div className="sub-value" style={{ color: rc.chequesExpirados > 0 ? '#ef4444' : undefined }}>Cheques pendientes con fecha pasada</div>
                             </div>
                         </div>
                     </div>

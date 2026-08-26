@@ -162,4 +162,147 @@ class ReportRepositoryTest extends BaseIntegrationTest {
         // ventasPendientes should be 500 (total) - 150 (paid) = 350
         assertThat(rc.getVentasPendientes()).isEqualTo(350.0);
     }
+
+    @Test
+    @DisplayName("getEstadisticas - prevents double counting when a cheque is cashed for a pending sale")
+    void getEstadisticas_ventasPendientes_noDoubleCountsCashedChecks() {
+        // Arrange
+        int year = 2026;
+        int month = 1;
+        int day = 10;
+
+        jdbcTemplate.update("DELETE FROM ventas WHERE fecha::date = '2026-01-10' OR fecha_creacion::date = '2026-01-10'");
+        jdbcTemplate.update("DELETE FROM pagos_venta");
+        jdbcTemplate.update("DELETE FROM alertas_cheques");
+
+        // Pending Sale for $1000
+        jdbcTemplate.update("""
+            INSERT INTO ventas (id, fecha, fecha_creacion, cliente_nombre, total_venta, estado)
+            VALUES (8888, '2026-01-10 11:00:00', '2026-01-10 11:00:00', 'Pending Client', 1000.0, 'PENDIENTE')
+        """);
+
+        // A $200 cashed-in cheque. It creates both a pagos_venta and a COBRADO alerta_cheque.
+        jdbcTemplate.update("""
+            INSERT INTO pagos_venta (id, venta_id, metodo_pago_id, monto, fecha_pago, anulado)
+            VALUES (777, 8888, 1, 200.0, '2026-01-10 11:30:00', false)
+        """);
+
+        jdbcTemplate.update("""
+            INSERT INTO alertas_cheques (venta_id, pago_venta_id, monto, fecha_cobro, estado)
+            VALUES (8888, 777, 200.0, '2026-01-10', 'COBRADO')
+        """);
+
+        // Act
+        ReportesEstadisticasDTO dto = reportRepository.getEstadisticas(year, month, day);
+        ReportesEstadisticasDTO.RendimientoComercial rc = dto.getRendimientoComercial();
+
+        // Assert
+        // ingresos_ventas should be ONLY 200 (the cash from the cheque). Not 400!
+        assertThat(rc.getIngresosVentas()).isEqualTo(200.0);
+
+        // ventasPendientes should be 1000 - 200 = 800. Not 600!
+        assertThat(rc.getVentasPendientes()).isEqualTo(800.0);
+    }
+
+    @Test
+    @DisplayName("getEstadisticas - correctly separates granular debt values")
+    void getEstadisticas_granularDebts() {
+        // Clean debts and checks
+        jdbcTemplate.update("DELETE FROM deudores");
+        jdbcTemplate.update("DELETE FROM alertas_cheques");
+
+        jdbcTemplate.update("""
+            INSERT INTO ventas (id, fecha, total_venta, estado)
+            VALUES (1010, CURRENT_TIMESTAMP, 500.0, 'ACTIVA')
+        """);
+
+        // Fiado: $300
+        jdbcTemplate.update("""
+            INSERT INTO deudores (venta_id, cliente_nombre, fecha_deuda, monto_deuda, estado) 
+            VALUES (1010, 'Test', CURRENT_TIMESTAMP, 300.0, 'PENDIENTE')
+        """);
+
+        // Pending Cheque (Future): $400
+        jdbcTemplate.update("""
+            INSERT INTO alertas_cheques (venta_id, monto, fecha_cobro, estado)
+            VALUES (1010, 400.0, CURRENT_DATE + INTERVAL '10 days', 'PENDIENTE')
+        """);
+
+        // Expired Cheque (Past): $150
+        jdbcTemplate.update("""
+            INSERT INTO alertas_cheques (venta_id, monto, fecha_cobro, estado)
+            VALUES (1010, 150.0, CURRENT_DATE - INTERVAL '10 days', 'PENDIENTE')
+        """);
+
+        // Act
+        ReportesEstadisticasDTO dto = reportRepository.getEstadisticas(2026, 5, 5);
+        ReportesEstadisticasDTO.RendimientoComercial rc = dto.getRendimientoComercial();
+
+        // Assert
+        assertThat(rc.getDeudasCtaCte()).isEqualTo(300.0);
+        assertThat(rc.getChequesPorCobrar()).isEqualTo(400.0);
+        assertThat(rc.getChequesExpirados()).isEqualTo(150.0);
+        assertThat(rc.getDeudasPendientes()).isEqualTo(850.0);
+    }
+
+    @Test
+    @DisplayName("getEstadisticas - calculates product volumes correctly excluding pending and returned items")
+    void getEstadisticas_calculatesProductVolumesCorrectly() {
+        int year = 2026;
+        int month = 2;
+        int day = 20;
+
+        jdbcTemplate.update("DELETE FROM compras");
+        jdbcTemplate.update("DELETE FROM ventas WHERE fecha::date = '2026-02-20' OR fecha_creacion::date = '2026-02-20'");
+
+        // Product
+        jdbcTemplate.update("""
+            INSERT INTO productos (id, descripcion, codigo, precio_costo, precio_minorista, creado_por, actualizado_por) 
+            VALUES (888, 'ProdTest', 'COD1', 10.0, 20.0, 1, 1)
+        """);
+
+        // Finalized sale with 5 items
+        jdbcTemplate.update("""
+            INSERT INTO ventas (id, fecha, total_venta, estado)
+            VALUES (5555, '2026-02-20 10:00:00', 500.0, 'ACTIVA')
+        """);
+        jdbcTemplate.update("""
+            INSERT INTO detalles_venta (id, venta_id, producto_id, descripcion_snapshot, codigo_snapshot, cantidad, precio_lista, precio_unitario, costo_snapshot, subtotal)
+            VALUES (555, 5555, 888, 'ProdTest', 'COD1', 5, 10, 10, 10, 50)
+        """);
+        // 2 items returned
+        jdbcTemplate.update("""
+            INSERT INTO devoluciones_venta (venta_id, detalle_venta_id, cantidad_devuelta, monto_reembolsado, tipo_reembolso, creado_por, actualizado_por)
+            VALUES (5555, 555, 2, 20, 'EFECTIVO', 1, 1)
+        """);
+
+        // Pending sale with 10 items (should NOT be counted)
+        jdbcTemplate.update("""
+            INSERT INTO ventas (id, fecha, total_venta, estado)
+            VALUES (6666, '2026-02-20 11:00:00', 1000.0, 'PENDIENTE')
+        """);
+        jdbcTemplate.update("""
+            INSERT INTO detalles_venta (id, venta_id, producto_id, descripcion_snapshot, codigo_snapshot, cantidad, precio_lista, precio_unitario, costo_snapshot, subtotal)
+            VALUES (666, 6666, 888, 'ProdTest', 'COD1', 10, 10, 10, 10, 100)
+        """);
+
+        // Purchase with 20 items
+        jdbcTemplate.update("""
+            INSERT INTO compras (id, proveedor, total_compra, fecha, nro_comprobante, usuario_id) 
+            VALUES (7777, 'TEST_PROV', 200.0, '2026-02-20 10:00:00', 'TEST', 1)
+        """);
+        jdbcTemplate.update("""
+            INSERT INTO detalles_compra (compra_id, producto_id, cantidad, costo_unitario, subtotal)
+            VALUES (7777, 888, 20, 10, 200)
+        """);
+
+        // Act
+        ReportesEstadisticasDTO dto = reportRepository.getEstadisticas(year, month, day);
+
+        // Assert
+        // Vendidos = 5 (sold) - 2 (returned) = 3. The 10 pending are ignored.
+        assertThat(dto.getRendimientoComercial().getProductosVendidos()).isEqualTo(3L);
+        // Comprados = 20
+        assertThat(dto.getRendimientoComercial().getProductosComprados()).isEqualTo(20L);
+    }
 }
