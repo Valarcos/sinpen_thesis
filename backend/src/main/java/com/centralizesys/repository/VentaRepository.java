@@ -45,23 +45,23 @@ public class VentaRepository {
     private final RowMapper<Venta> ventaMapper = (rs, rowNum) -> {
         Long usuarioIdVal = rs.getLong("usuario_id");
         Long usuarioId = rs.wasNull() ? null : usuarioIdVal;
-        Venta v = new Venta(
-                rs.getLong("id"),
-                rs.getObject("fecha", LocalDateTime.class),
-                rs.getObject("fecha_creacion", LocalDateTime.class),
-                rs.getString("cliente_nombre"),
-                null, // clienteId: set below with null-safe helper
-                rs.getDouble("total_venta"),
-                rs.getDouble("descuento_global"),
-                getNullableDouble(rs, "recargo_global"),
-                getNullableDouble(rs, "saldo_generado"),
-                rs.getString("tipo_venta"),
-                usuarioId,
-                rs.getString(PARAM_ESTADO),
-                getNullableDouble(rs, "costo_total"),
-                getNullableLong(rs, "cantidad_productos"),
-                rs.getInt("version")
-        );
+        Venta v = new Venta();
+        v.setId(rs.getLong("id"));
+        v.setFecha(rs.getObject("fecha", LocalDateTime.class));
+        v.setFechaCreacion(rs.getObject("fecha_creacion", LocalDateTime.class));
+        v.setClienteNombre(rs.getString("cliente_nombre"));
+        // clienteId is set below with null-safe helper
+        v.setTotalVenta(rs.getDouble("total_venta"));
+        v.setDescuentoGlobal(rs.getDouble("descuento_global"));
+        v.setRecargoGlobal(getNullableDouble(rs, "recargo_global"));
+        v.setSaldoGenerado(getNullableDouble(rs, "saldo_generado"));
+        v.setTipoVenta(rs.getString("tipo_venta"));
+        v.setUsuarioId(usuarioId);
+        v.setEstado(rs.getString(PARAM_ESTADO));
+        v.setCostoTotal(getNullableDouble(rs, "costo_total"));
+        v.setCantidadProductos(getNullableLong(rs, "cantidad_productos"));
+        v.setVersion(rs.getInt("version"));
+
         v.setClienteId(getNullableLong(rs, "cliente_id"));
         return v;
     };

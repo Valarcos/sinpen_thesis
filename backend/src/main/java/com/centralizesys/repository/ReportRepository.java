@@ -178,10 +178,10 @@ public class ReportRepository {
         // Outstanding debts — note: we report ALL currently pending debts regardless of period
         // to give an accurate current-state picture for the dashboard.
         String debtSql = """
-            SELECT (
-                COALESCE((SELECT SUM(monto_deuda) FROM deudores WHERE estado IN ('PENDIENTE', 'PARCIAL')), 0.0) +
-                COALESCE((SELECT SUM(monto) FROM alertas_cheques WHERE estado = 'PENDIENTE'), 0.0)
-            ) AS deudas_pendientes
+            SELECT 
+                COALESCE((SELECT SUM(monto_deuda) FROM deudores WHERE estado IN ('PENDIENTE', 'PARCIAL')), 0.0) AS deudas_cta_cte,
+                COALESCE((SELECT SUM(monto) FROM alertas_cheques WHERE estado = 'PENDIENTE' AND fecha_cobro >= CURRENT_DATE), 0.0) AS cheques_por_cobrar,
+                COALESCE((SELECT SUM(monto) FROM alertas_cheques WHERE estado = 'PENDIENTE' AND fecha_cobro < CURRENT_DATE), 0.0) AS cheques_expirados
         """;
 
         String pendingOrdersSql = """
@@ -204,7 +204,7 @@ public class ReportRepository {
                     SELECT SUM(ac.monto) 
                     FROM alertas_cheques ac 
                     JOIN ventas vp ON ac.venta_id = vp.id 
-                    WHERE vp.estado = 'PENDIENTE' AND ac.estado != 'ANULADA' 
+                    WHERE vp.estado = 'PENDIENTE' AND ac.estado = 'PENDIENTE' 
                     """ + dateFilter.replace(FECHA_FIELD, FECHA_CREACION) + """
                 ), 0.0)
             ) AS pagos_pendientes
@@ -212,12 +212,18 @@ public class ReportRepository {
 
         List<Map<String, Object>> revenueResult   = namedJdbcTemplate.queryForList(revenueSql, params);
         List<Map<String, Object>> purchaseResult  = namedJdbcTemplate.queryForList(purchaseSql, params);
-        Double deudas                             = namedJdbcTemplate.queryForObject(debtSql, new MapSqlParameterSource(), Double.class);
+        List<Map<String, Object>> deudasResult    = namedJdbcTemplate.queryForList(debtSql, new MapSqlParameterSource());
         Double pendingOrders                      = namedJdbcTemplate.queryForObject(pendingOrdersSql, params, Double.class);
         Double pagosPending                       = namedJdbcTemplate.queryForObject(pagosPendingOrdersSql, params, Double.class);
 
         Map<String, Object> revenueRow  = revenueResult.isEmpty()  ? Map.of() : revenueResult.getFirst();
         Map<String, Object> purchaseRow = purchaseResult.isEmpty() ? Map.of() : purchaseResult.getFirst();
+        Map<String, Object> deudasRow   = deudasResult.isEmpty()   ? Map.of() : deudasResult.getFirst();
+
+        double deudasCtaCte          = safeDouble(deudasRow, "deudas_cta_cte");
+        double chequesPorCobrar      = safeDouble(deudasRow, "cheques_por_cobrar");
+        double chequesExpirados      = safeDouble(deudasRow, "cheques_expirados");
+        double deudasTotal           = deudasCtaCte + chequesPorCobrar + chequesExpirados;
 
         double pagosPendingVal       = pagosPending != null ? pagosPending : 0.0;
         double ingresosVentas        = safeDouble(revenueRow, "ingresos_ventas") + pagosPendingVal;
@@ -229,7 +235,10 @@ public class ReportRepository {
                 safeDouble(revenueRow, "costo_total_vendido"),
                 safeLong(revenueRow, "productos_vendidos"),
                 safeLong(purchaseRow, "productos_comprados"),
-                deudas != null ? deudas : 0.0,
+                deudasTotal,
+                deudasCtaCte,
+                chequesPorCobrar,
+                chequesExpirados,
                 ventasPendientesVal,
                 ventasTotalesProyect
         );

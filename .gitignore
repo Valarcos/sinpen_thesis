@@ -132,3 +132,8 @@ build/
 #      END OF GITIGNORE                #
 ########################################
 geminiChats/
+############### PYTHON #################
+venv/
+.venv/
+__pycache__/
+*.pyc

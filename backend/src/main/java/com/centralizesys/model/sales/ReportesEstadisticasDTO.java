@@ -21,6 +21,9 @@ public class ReportesEstadisticasDTO {
         private Long productosVendidos;
         private Long productosComprados;
         private Double deudasPendientes;
+        private Double deudasCtaCte;
+        private Double chequesPorCobrar;
+        private Double chequesExpirados;
         /** Total monetary value of orders in PENDIENTE state within the filtered period. */
         private Double ventasPendientes;
         /** Projected revenue: ingresosVentas + ventasPendientes. */
