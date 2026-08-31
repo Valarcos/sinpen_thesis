@@ -158,13 +158,15 @@ export default function VentaPage() {
             // Since pending sales only store a snapshot, we need real prices
             // for the saleType toggle (Minorista/Mayorista) to correctly recalculate.
             if (sale.items && sale.items.length > 0) {
-                const itemIds = sale.items.map(i => i.productoId || i.id);
-                Promise.all(itemIds.map(id => api.get(`/productos/${id}`).then(r => r.data).catch(() => null)))
-                    .then(productsList => {
-                        const validProducts = productsList.filter(Boolean);
-                        if (validProducts.length > 0) {
-                            updateMultipleProductsData(validProducts);
+                const itemIds = [...new Set(sale.items.map(i => i.productoId || i.id).filter(Boolean))];
+                api.post('/productos/bulk', itemIds)
+                    .then(r => {
+                        if (r.data && r.data.length > 0) {
+                            updateMultipleProductsData(r.data);
                         }
+                    })
+                    .catch(err => {
+                        console.error('Failed to fetch bulk products for pending cart:', err);
                     });
             }
 

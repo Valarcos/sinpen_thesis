@@ -9,6 +9,7 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
         nombre: '',
         email: '',
         password: '',
+        securityPin: '',
         rol: 'EMPLEADO'
     });
     const [loading, setLoading] = useState(false);
@@ -23,6 +24,7 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
                 nombre: user.nombre || '',
                 email: user.email || '',
                 password: '',
+                securityPin: '',
                 rol: user.rol || 'EMPLEADO'
             });
         }
@@ -77,6 +79,7 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
                 if (formData.nombre !== user.nombre) updateData.nombre = formData.nombre;
                 if (formData.email !== user.email) updateData.email = formData.email;
                 if (formData.password.trim()) updateData.password = formData.password;
+                if (formData.securityPin.trim()) updateData.securityPin = formData.securityPin;
                 if (formData.rol !== user.rol) updateData.rol = formData.rol;
 
                 await api.put(`/usuarios/${user.id}`, updateData);
@@ -85,7 +88,9 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
                 await api.post('/usuarios/register', {
                     nombre: formData.nombre,
                     email: formData.email,
-                    password: formData.password
+                    password: formData.password,
+                    securityPin: formData.securityPin,
+                    rol: formData.rol
                 });
                 toast.success('Usuario creado correctamente');
             }
@@ -169,6 +174,24 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
                     </div>
 
                     <div className="form-group">
+                        <label htmlFor="securityPin">
+                            PIN de Seguridad (Reportes)
+                        </label>
+                        <input
+                            id="securityPin"
+                            name="securityPin"
+                            type="password"
+                            value={formData.securityPin}
+                            onChange={handleChange}
+                            disabled={loading}
+                            placeholder={isEditing ? 'Dejar vacío para mantener actual' : ''}
+                        />
+                        <span className="help-text">
+                            PIN numérico requerido para acceder a la pestaña de Reportes.
+                        </span>
+                    </div>
+
+                    <div className="form-group">
                         <label htmlFor="rol">Rol</label>
                         <select
                             id="rol"
@@ -179,6 +202,7 @@ export default function UserFormModal({ user, onSuccess, onCancel }) {
                         >
                             <option value="EMPLEADO">EMPLEADO</option>
                             <option value="ADMIN">ADMIN</option>
+                            <option value="OWNER">DUEÑO (OWNER)</option>
                         </select>
                         {user && user.id === 0 && (
                             <span className="help-text">

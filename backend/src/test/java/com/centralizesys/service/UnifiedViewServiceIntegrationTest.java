@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UnifiedViewServiceIntegrationTest extends BaseIntegrationTest {
 
@@ -98,5 +100,46 @@ class UnifiedViewServiceIntegrationTest extends BaseIntegrationTest {
 
         // Verify quantity ignores the annulled items (quantity of 5)
         assertThat(Long.valueOf(saleData.get("cantidad_productos").toString())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("getCobrosYPedidos filters sales based on EMPLEADO role")
+    void getCobrosYPedidos_FiltersByEmpleadoRole() {
+        // Arrange
+        // Create an ADMIN user
+        jdbcTemplate.update("INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES ('Admin', 'admin@uvs.com', 'hash', 'ADMIN', true) ON CONFLICT DO NOTHING");
+        Long adminId = jdbcTemplate.queryForObject("SELECT id FROM usuarios WHERE email = 'admin@uvs.com'", Long.class);
+
+        // Create an EMPLEADO user
+        jdbcTemplate.update("INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES ('Emp', 'emp@uvs.com', 'hash', 'EMPLEADO', true) ON CONFLICT DO NOTHING");
+        Long empleadoId = jdbcTemplate.queryForObject("SELECT id FROM usuarios WHERE email = 'emp@uvs.com'", Long.class);
+
+        // Seed 2 FIADO sales: one for admin, one for empleado
+        Long adminVentaId = seedTestSaleWithDebt(adminId, "Admin Client", 1000.0, 400.0, 0.0);
+        Long empVentaId = seedTestSaleWithDebt(empleadoId, "Emp Client", 500.0, 200.0, 0.0);
+
+        // Act & Assert for ADMIN
+        // Simulate ADMIN context
+        authenticateUser(adminId, "ROLE_ADMIN");
+
+        List<Map<String, Object>> adminView = unifiedViewService.getCobrosYPedidos();
+
+        boolean foundAdmin = adminView.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(adminVentaId));
+        boolean foundEmp = adminView.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(empVentaId));
+
+        assertTrue(foundAdmin, "ADMIN debe ver sus propias ventas");
+        assertTrue(foundEmp, "ADMIN debe ver las ventas de los empleados");
+
+        // Act & Assert for EMPLEADO
+        // Simulate EMPLEADO context
+        authenticateUser(empleadoId, "ROLE_EMPLEADO");
+
+        List<Map<String, Object>> empView = unifiedViewService.getCobrosYPedidos();
+
+        boolean empFoundAdmin = empView.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(adminVentaId));
+        boolean empFoundEmp = empView.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(empVentaId));
+
+        assertFalse(empFoundAdmin, "EMPLEADO NO debe ver las ventas del ADMIN");
+        assertTrue(empFoundEmp, "EMPLEADO debe ver sus propias ventas");
     }
 }

@@ -9,7 +9,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -24,8 +23,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(ProductController.class)
-@AutoConfigureMockMvc(addFilters = false)
+@org.springframework.boot.test.context.SpringBootTest
+@AutoConfigureMockMvc
 @org.springframework.test.context.ActiveProfiles("test")
 class ProductControllerTest {
 
@@ -41,21 +40,8 @@ class ProductControllerTest {
     @MockBean
     private com.centralizesys.service.AuditoriaService auditoriaService;
 
-    // Security Mocks need to be present even if filters are off for context loading
-    // usually,
-    // or sometimes just having them mocked avoids bean creation issues if they are
-    // injected elsewhere.
-    // However, @WebMvcTest usually only loads the controller.
-    // If GlobalExceptionHandler or others need them, we might need them.
-    // Safe to mock them if previous tests had them.
-    @MockBean
-    private com.centralizesys.security.JwtTokenProvider jwtTokenProvider;
-    @MockBean
-    private com.centralizesys.security.CustomUserDetailsService customUserDetailsService;
-    @MockBean
-    private com.centralizesys.security.JwtAuthenticationFilter jwtAuthenticationFilter;
-
     @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "ADMIN")
     @DisplayName("Get All Products (Browse) returns PageResponse")
     void getAll_ReturnsPage() throws Exception {
         Product p = Product.builder().id(1L).codigo("CODE").descripcion("Desc")
@@ -74,6 +60,29 @@ class ProductControllerTest {
     }
 
     @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "EMPLEADO")
+    @DisplayName("Bulk Fetch Products returns List")
+    void getBulk_ReturnsList() throws Exception {
+        Product p1 = Product.builder().id(1L).codigo("CODE1").descripcion("Desc1")
+                .precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0)
+                .cantidadStock(5L).activo(true).build();
+        Product p2 = Product.builder().id(2L).codigo("CODE2").descripcion("Desc2")
+                .precioCosto(15.0).precioMayorista(15.0).precioMinorista(25.0)
+                .cantidadStock(10L).activo(true).build();
+
+        List<Product> products = List.of(p1, p2);
+        when(service.findAllById(List.of(1L, 2L))).thenReturn(products);
+
+        mockMvc.perform(post("/api/productos/bulk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[1, 2]"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[1].id").value(2));
+    }
+
+    @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "EMPLEADO")
     @DisplayName("Search Products returns PageResponse")
     void search_ReturnsPage() throws Exception {
         Product p = Product.builder().id(1L).codigo("CODE").descripcion("Desc")
@@ -91,7 +100,8 @@ class ProductControllerTest {
     }
 
     @Test
-    @DisplayName("Create product delegates to createWithStock")
+    @org.springframework.security.test.context.support.WithMockUser(roles = "OWNER")
+    @DisplayName("Create product delegates to createWithStock as OWNER")
     void create_Success() throws Exception {
         ProductRequest req = new ProductRequest();
         req.setCodigo("CODE");
@@ -109,6 +119,7 @@ class ProductControllerTest {
         when(service.createWithStock(any(Product.class), eq(1L), eq(5L), any())).thenReturn(saved);
 
         mockMvc.perform(post("/api/productos")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated())
@@ -118,6 +129,7 @@ class ProductControllerTest {
     }
 
     @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "ADMIN")
     @DisplayName("Update product delegates to service")
     void update_Success() throws Exception {
         ProductRequest req = new ProductRequest();
@@ -128,6 +140,7 @@ class ProductControllerTest {
         req.setPrecioMinorista(25.0);
 
         mockMvc.perform(put("/api/productos/1")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isNoContent());
@@ -136,15 +149,18 @@ class ProductControllerTest {
     }
 
     @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "ADMIN")
     @DisplayName("Delete product delegates to service")
     void delete_Success() throws Exception {
-        mockMvc.perform(delete("/api/productos/1"))
+        mockMvc.perform(delete("/api/productos/1")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isNoContent());
 
         verify(service).deleteById(eq(1L), any());
     }
 
     @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "ADMIN")
     @DisplayName("Create with invalid data returns 400")
     void create_InvalidData() throws Exception {
         // Assuming validation throws BusinessRuleException
@@ -152,22 +168,26 @@ class ProductControllerTest {
                 .thenThrow(new com.centralizesys.exception.BusinessRuleException("Invalid"));
 
         mockMvc.perform(post("/api/productos")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "ADMIN")
     @DisplayName("Delete non-existent returns 404")
     void delete_NotFound() throws Exception {
         doThrow(new com.centralizesys.exception.ResourceNotFoundException("Product", 999L))
                 .when(service).deleteById(eq(999L), any());
 
-        mockMvc.perform(delete("/api/productos/999"))
+        mockMvc.perform(delete("/api/productos/999")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isNotFound());
     }
 
     @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles = "ADMIN")
     @DisplayName("Get Alerts returns list")
     void getAlerts_Success() throws Exception {
         Product p = Product.builder().id(1L).codigo("CODE").descripcion("Desc")
@@ -178,6 +198,13 @@ class ProductControllerTest {
         mockMvc.perform(get("/api/productos/alerts"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].cantidadStock").value(-5));
+    }
+
+    @Test
+    @DisplayName("Unauthenticated request returns 401 Unauthorized (because of our entry point)")
+    void unauthenticated_ReturnsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/productos/alerts"))
+                .andExpect(status().isUnauthorized());
     }
 }
 

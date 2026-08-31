@@ -116,6 +116,49 @@ class VentaServiceValidationTest {
                 "Error message must include the product's description for user clarity");
     }
 
+    @Test
+    @DisplayName("UT-23a: processItems allows inactive product if it was already in cart within limits")
+    void processItems_Allows_InactiveProduct_IfAlreadyInCart() {
+        Product deletedProduct = Product.builder().id(1L).codigo("OLD-CODE").descripcion("Producto Archivado")
+                .precioCosto(50.0).precioMayorista(80.0).precioMinorista(100.0)
+                .cantidadStock(0L).activo(false).build();
+
+        VentaRequest.ItemRequest item = new VentaRequest.ItemRequest();
+        item.setProductoId(1L);
+        item.setCantidad(2L);
+
+        when(productRepository.findByIdIncludingInactive(1L)).thenReturn(Optional.of(deletedProduct));
+
+        java.util.Map<Long, Long> oldQuantities = java.util.Map.of(1L, 3L);
+
+        // Act
+        VentaService.ProcessedSaleResult result = ventaService.processItems(List.of(item), TipoVenta.MINORISTA, oldQuantities);
+
+        // Assert
+        assertEquals(1, result.getDetalles().size());
+    }
+
+    @Test
+    @DisplayName("UT-23b: processItems throws when increasing quantity of inactive product")
+    void processItems_Throws_WhenIncreasingInactiveProductQuantity() {
+        Product deletedProduct = Product.builder().id(1L).codigo("OLD-CODE").descripcion("Producto Archivado")
+                .precioCosto(50.0).precioMayorista(80.0).precioMinorista(100.0)
+                .cantidadStock(0L).activo(false).build();
+
+        VentaRequest.ItemRequest item = new VentaRequest.ItemRequest();
+        item.setProductoId(1L);
+        item.setCantidad(4L); // Attempting to increase
+
+        when(productRepository.findByIdIncludingInactive(1L)).thenReturn(Optional.of(deletedProduct));
+
+        java.util.Map<Long, Long> oldQuantities = java.util.Map.of(1L, 3L); // Max allowed is 3
+
+        BusinessRuleException ex = assertThrows(BusinessRuleException.class,
+                () -> ventaService.processItems(List.of(item), TipoVenta.MINORISTA, oldQuantities));
+
+        assertTrue(ex.getMessage().contains("No puede incrementar su cantidad"));
+    }
+
     // --- PHASE 2.1 MATHEMATICAL EXPLOITS ---
 
     @Test

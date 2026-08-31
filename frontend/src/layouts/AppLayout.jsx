@@ -62,9 +62,11 @@ export default function AppLayout() {
                         <NavLink to="/historial-ventas" className={isActive('/historial-ventas') ? 'active' : ''}>
                             📖 Historial
                         </NavLink>
-                        <NavLink to="/reportes" className={isActive('/reportes') ? 'active' : ''}>
-                            📊 Reportes
-                        </NavLink>
+                        {userRole !== 'EMPLEADO' && (
+                            <NavLink to="/reportes" className={isActive('/reportes') ? 'active' : ''}>
+                                📊 Reportes
+                            </NavLink>
+                        )}
                         <NavLink to="/backups" className={isActive('/backups') ? 'active' : ''}>
                             💾 Respaldos
                         </NavLink>
@@ -209,9 +211,11 @@ export default function AppLayout() {
                         <NavLink to="/historial-ventas" className={isActive('/historial-ventas') ? 'active' : ''} onClick={() => setShowMobileMenu(false)}>
                             📖 Historial
                         </NavLink>
-                        <NavLink to="/reportes" className={isActive('/reportes') ? 'active' : ''} onClick={() => setShowMobileMenu(false)}>
-                            📊 Reportes
-                        </NavLink>
+                        {userRole !== 'EMPLEADO' && (
+                            <NavLink to="/reportes" className={isActive('/reportes') ? 'active' : ''} onClick={() => setShowMobileMenu(false)}>
+                                📊 Reportes
+                            </NavLink>
+                        )}
                         <NavLink to="/backups" className={isActive('/backups') ? 'active' : ''} onClick={() => setShowMobileMenu(false)}>
                             💾 Respaldos
                         </NavLink>

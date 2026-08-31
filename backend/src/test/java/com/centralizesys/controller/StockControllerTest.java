@@ -61,6 +61,19 @@ class StockControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "OWNER")
+    void addStock_AsOwner_ShouldCallService() throws Exception {
+        StockAdjustRequest request = new StockAdjustRequest(1L, 10L, 5L);
+
+        mockMvc.perform(post("/api/stock/add")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        verify(stockService).addStock(1L, 10L, 5L);
+    }
+
+    @Test
     @WithMockUser(roles = "ADMIN")
     void subtractStock_ShouldCallService() throws Exception {
         StockAdjustRequest request = new StockAdjustRequest(1L, 10L, 3L);

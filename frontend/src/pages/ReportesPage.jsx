@@ -13,8 +13,13 @@ export default function ReportesPage() {
     const [month, setMonth] = useState(() => new Date().getMonth() + 1);
 
     const [stats, setStats] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
+    const [securityPin, setSecurityPin] = useState(localStorage.getItem('reportSecurityPin') || '');
+    const [pinInput, setPinInput] = useState('');
+    const [isLocked, setIsLocked] = useState(true);
     const isMounted = useRef(true);
+
+    const userRole = localStorage.getItem('userRole');
 
     useEffect(() => {
         isMounted.current = true;
@@ -38,26 +43,51 @@ export default function ReportesPage() {
     }, [granularity, year, month, date]);
 
     const loadStats = useCallback(async () => {
+        if (!securityPin) return; // Wait for PIN to be submitted
+
         setLoading(true);
         try {
-            const res = await api.get('/reportes/estadisticas', { params: filterParams });
+            const res = await api.get('/reportes/estadisticas', {
+                params: filterParams,
+                headers: { 'X-Security-Pin': securityPin }
+            });
             if (isMounted.current) {
                 setStats(res.data);
+                setIsLocked(false);
             }
         } catch (error) {
             console.error("Error loading stats:", error);
-            toast.error("Error al cargar las estadísticas financieras");
+            if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+                if (isMounted.current) {
+                    setIsLocked(true);
+                    setSecurityPin(''); // Clear invalid pin
+                    localStorage.removeItem('reportSecurityPin');
+                }
+                toast.error("PIN incorrecto o no configurado.");
+            } else {
+                toast.error("Error al cargar las estadísticas financieras");
+            }
         } finally {
             if (isMounted.current) {
                 setLoading(false);
             }
         }
-    }, [filterParams]);
+    }, [filterParams, securityPin]);
 
     // Auto-refresh when parameters change
     useEffect(() => {
-        loadStats();
-    }, [loadStats]);
+        if (securityPin) {
+            loadStats();
+        }
+    }, [loadStats, securityPin]);
+
+    const handlePinSubmit = (e) => {
+        e.preventDefault();
+        if (pinInput.trim()) {
+            setSecurityPin(pinInput.trim());
+            localStorage.setItem('reportSecurityPin', pinInput.trim());
+        }
+    };
 
     const rc = stats?.rendimientoComercial;
     const fc = stats?.flujoDeCaja;
@@ -65,6 +95,30 @@ export default function ReportesPage() {
     // Derived Financial Metrics
     const gananciaBruta = rc ? rc.ingresosVentas - rc.costoTotalVendido : 0;
     const margenPct = rc && rc.ingresosVentas > 0 ? (gananciaBruta / rc.ingresosVentas) * 100 : 0;
+
+    if (isLocked) {
+        return (
+            <div className="reportes-page lock-screen">
+                <div className="lock-container" style={{ maxWidth: '400px', margin: '100px auto', padding: '30px', background: 'white', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+                    <h2 style={{ marginBottom: '15px' }}>🔒 Acceso Restringido</h2>
+                    <p style={{ color: '#64748b', marginBottom: '25px' }}>Por favor, ingrese su PIN de seguridad para ver los reportes.</p>
+                    <form onSubmit={handlePinSubmit}>
+                        <input
+                            type="password"
+                            value={pinInput}
+                            onChange={(e) => setPinInput(e.target.value)}
+                            placeholder="PIN numérico"
+                            style={{ width: '100%', padding: '12px', marginBottom: '20px', fontSize: '1.5rem', textAlign: 'center', letterSpacing: '8px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                            autoFocus
+                        />
+                        <button type="submit" className="primary massive" style={{ width: '100%' }} disabled={loading}>
+                            {loading ? 'Verificando...' : 'Desbloquear'}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="reportes-page">

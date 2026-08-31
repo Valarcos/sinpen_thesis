@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
                                         nombre TEXT NOT NULL,
                                         email TEXT NOT NULL,
                                         password_hash TEXT NOT NULL,
-                                        rol TEXT NOT NULL DEFAULT 'EMPLEADO' CHECK(rol IN ('ADMIN', 'EMPLEADO')),
+                                        security_pin TEXT,
+                                        rol TEXT NOT NULL DEFAULT 'EMPLEADO' CHECK(rol IN ('ADMIN', 'EMPLEADO', 'OWNER')),
                                         fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                         activo BOOLEAN NOT NULL DEFAULT TRUE
 );;

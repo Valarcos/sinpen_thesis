@@ -25,7 +25,7 @@ public class AuditoriaController {
      * Defaults to the last 15 days if no dates are provided.
      * Format: YYYY-MM-DDTHH:mm:ss (ISO 8601)
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     @GetMapping
     public ResponseEntity<List<Auditoria>> getLogs(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,

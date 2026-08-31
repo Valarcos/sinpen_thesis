@@ -70,6 +70,19 @@ public abstract class BaseIntegrationTest {
     }
 
     /**
+     * Helper to authenticate a user context for tests relying on SecurityUtils.
+     */
+    protected void authenticateUser(Long userId, String role) {
+        com.centralizesys.security.CustomUserDetails userDetails = new com.centralizesys.security.CustomUserDetails(
+                userId, "test" + userId + "@test.com", "pass", "Test User",
+                java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(role))
+        );
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())
+        );
+    }
+
+    /**
      * Helper to create a generic product with stock.
      *
      * @param code  The ART code (e.g. "A-100")

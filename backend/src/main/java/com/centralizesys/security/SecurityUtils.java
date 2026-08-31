@@ -21,4 +21,13 @@ public class SecurityUtils {
         log.warn("SecurityContext not found or Principal is not CustomUserDetails. Defaulting to System (0).");
         return 0L;
     }
+
+    public static boolean isCurrentUserEmpleado() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getAuthorities() != null) {
+            return auth.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().equals("ROLE_EMPLEADO"));
+        }
+        return false;
+    }
 }

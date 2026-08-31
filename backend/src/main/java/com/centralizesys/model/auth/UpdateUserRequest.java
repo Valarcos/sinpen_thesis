@@ -8,6 +8,7 @@ public record UpdateUserRequest(
         String nombre, // Optional - update name
         String email, // Optional - update email
         String password, // Optional - set new password (will be hashed)
-        String rol // Optional - change role (ADMIN or EMPLEADO)
+        String rol, // Optional - change role (ADMIN, EMPLEADO, OWNER)
+        String securityPin // Optional - set new security pin (will be hashed)
 ) {
 }
