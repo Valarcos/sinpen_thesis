@@ -21,9 +21,6 @@ public class UnifiedViewService {
         boolean isEmpleado = SecurityUtils.isCurrentUserEmpleado();
         Long currentUserId = SecurityUtils.getAuthenticatedUserId();
 
-        String userFilterV = isEmpleado ? " AND v.usuario_id = :userId " : "";
-        String userFilterP = isEmpleado ? " AND p.usuario_id = :userId " : "";
-
         String sql = """
             SELECT
                 'FIADO' as tipo,
@@ -43,7 +40,7 @@ public class UnifiedViewService {
             FROM deudores d
             JOIN ventas v ON d.venta_id = v.id
             WHERE d.estado IN ('PENDIENTE', 'PARCIAL')
-            """ + userFilterV + """
+              AND (:isEmpleado = false OR v.usuario_id = :userId)
             
             UNION ALL
             
@@ -67,7 +64,7 @@ public class UnifiedViewService {
             FROM alertas_cheques ac
             JOIN ventas v ON ac.venta_id = v.id
             WHERE ac.estado = 'PENDIENTE' AND v.estado != 'PENDIENTE'
-            """ + userFilterV + """
+              AND (:isEmpleado = false OR v.usuario_id = :userId)
             GROUP BY v.id, v.cliente_nombre, v.fecha, v.total_venta, v.tipo_venta
         
             UNION ALL
@@ -96,16 +93,14 @@ public class UnifiedViewService {
                 CASE WHEN EXISTS (SELECT 1 FROM alertas_cheques WHERE venta_id = p.id AND estado = 'PENDIENTE') THEN TRUE ELSE FALSE END as has_cheque
             FROM ventas p
             WHERE p.estado = 'PENDIENTE'
-            """ + userFilterP + """
         
             ORDER BY fecha_creacion DESC
             LIMIT 300
         """;
 
         MapSqlParameterSource params = new MapSqlParameterSource();
-        if (isEmpleado) {
-            params.addValue("userId", currentUserId);
-        }
+        params.addValue("isEmpleado", isEmpleado);
+        params.addValue("userId", currentUserId);
 
         return namedParameterJdbcTemplate.queryForList(sql, params);
     }

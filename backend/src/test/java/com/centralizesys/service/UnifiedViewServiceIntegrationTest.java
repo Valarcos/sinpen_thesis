@@ -141,5 +141,66 @@ class UnifiedViewServiceIntegrationTest extends BaseIntegrationTest {
 
         assertFalse(empFoundAdmin, "EMPLEADO NO debe ver las ventas del ADMIN");
         assertTrue(empFoundEmp, "EMPLEADO debe ver sus propias ventas");
+
+        // --- Additional Test Coverage: PEDIDO ---
+        // Seed a pending sale (PEDIDO) for both roles
+        Long adminPedidoId = seedTestPedido(adminId, "Admin Pedido");
+        Long empPedidoId = seedTestPedido(empleadoId, "Emp Pedido");
+
+        // Verify Admin sees both Pedidos
+        authenticateUser(adminId, "ROLE_ADMIN");
+        List<Map<String, Object>> adminViewPedidos = unifiedViewService.getCobrosYPedidos();
+        assertTrue(adminViewPedidos.stream().anyMatch(row -> row.get("id_referencia") != null && Long.valueOf(row.get("id_referencia").toString()).equals(adminPedidoId) && "PEDIDO".equals(row.get("tipo"))));
+        assertTrue(adminViewPedidos.stream().anyMatch(row -> row.get("id_referencia") != null && Long.valueOf(row.get("id_referencia").toString()).equals(empPedidoId) && "PEDIDO".equals(row.get("tipo"))));
+
+        // Verify Empleado sees BOTH Pedidos (Rollback: all users see all pending sales)
+        authenticateUser(empleadoId, "ROLE_EMPLEADO");
+        List<Map<String, Object>> empViewPedidos = unifiedViewService.getCobrosYPedidos();
+        assertTrue(empViewPedidos.stream().anyMatch(row -> row.get("id_referencia") != null && Long.valueOf(row.get("id_referencia").toString()).equals(adminPedidoId) && "PEDIDO".equals(row.get("tipo"))));
+        assertTrue(empViewPedidos.stream().anyMatch(row -> row.get("id_referencia") != null && Long.valueOf(row.get("id_referencia").toString()).equals(empPedidoId) && "PEDIDO".equals(row.get("tipo"))));
+
+        // --- Additional Test Coverage: CHEQUE ---
+        // Seed a CHEQUE alert for both roles (active sale)
+        Long adminChequeSaleId = seedTestCheque(adminId, "Admin Cheque");
+        Long empChequeSaleId = seedTestCheque(empleadoId, "Emp Cheque");
+
+        // Verify Admin sees both Cheques
+        authenticateUser(adminId, "ROLE_ADMIN");
+        List<Map<String, Object>> adminViewCheques = unifiedViewService.getCobrosYPedidos();
+        assertTrue(adminViewCheques.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(adminChequeSaleId) && "CHEQUE".equals(row.get("tipo"))));
+        assertTrue(adminViewCheques.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(empChequeSaleId) && "CHEQUE".equals(row.get("tipo"))));
+
+        // Verify Empleado sees only their Cheque
+        authenticateUser(empleadoId, "ROLE_EMPLEADO");
+        List<Map<String, Object>> empViewCheques = unifiedViewService.getCobrosYPedidos();
+        assertFalse(empViewCheques.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(adminChequeSaleId) && "CHEQUE".equals(row.get("tipo"))));
+        assertTrue(empViewCheques.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(empChequeSaleId) && "CHEQUE".equals(row.get("tipo"))));
+    }
+
+    private Long seedTestPedido(Long userId, String clientName) {
+        Venta venta = new Venta();
+        venta.setFecha(LocalDateTime.now());
+        venta.setClienteNombre(clientName);
+        venta.setTotalVenta(100.0);
+        venta.setUsuarioId(userId);
+        venta.setEstado("PENDIENTE"); // Critical for PEDIDO query
+        return ventaRepository.saveVenta(venta);
+    }
+
+    private Long seedTestCheque(Long userId, String clientName) {
+        Venta venta = new Venta();
+        venta.setFecha(LocalDateTime.now());
+        venta.setClienteNombre(clientName);
+        venta.setTotalVenta(200.0);
+        venta.setUsuarioId(userId);
+        venta.setEstado("ACTIVA"); // Critical for CHEQUE query (must not be PENDIENTE)
+        Long ventaId = ventaRepository.saveVenta(venta);
+
+        jdbcTemplate.update("""
+            INSERT INTO alertas_cheques (venta_id, monto, estado, fecha_cobro)
+            VALUES (?, 200.0, 'PENDIENTE', CURRENT_DATE)
+        """, ventaId);
+
+        return ventaId;
     }
 }

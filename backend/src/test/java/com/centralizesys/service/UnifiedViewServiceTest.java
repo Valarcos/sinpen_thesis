@@ -27,7 +27,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-public class UnifiedViewServiceTest {
+class UnifiedViewServiceTest {
 
     @Mock
     private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
@@ -68,9 +68,10 @@ public class UnifiedViewServiceTest {
         String executedSql = sqlCaptor.getValue();
         MapSqlParameterSource executedParams = paramsCaptor.getValue();
 
-        assertFalse(executedSql.contains("AND v.usuario_id = :userId"), "Admin no debe tener filtro de usuario para v");
-        assertFalse(executedSql.contains("AND p.usuario_id = :userId"), "Admin no debe tener filtro de usuario para p");
-        assertFalse(executedParams.hasValue("userId"), "Los parametros no deben contener userId para Admin");
+        assertTrue(executedSql.contains("(:isEmpleado = false OR v.usuario_id = :userId)"));
+        assertTrue(executedParams.hasValue("isEmpleado"));
+        assertFalse((Boolean) executedParams.getValue("isEmpleado"), "Para admin, isEmpleado debe ser false");
+        assertEquals(1L, executedParams.getValue("userId"));
     }
 
     @Test
@@ -96,9 +97,9 @@ public class UnifiedViewServiceTest {
         String executedSql = sqlCaptor.getValue();
         MapSqlParameterSource executedParams = paramsCaptor.getValue();
 
-        assertTrue(executedSql.contains("AND v.usuario_id = :userId"), "Empleado debe tener filtro de usuario para v");
-        assertTrue(executedSql.contains("AND p.usuario_id = :userId"), "Empleado debe tener filtro de usuario para p");
-        assertTrue(executedParams.hasValue("userId"), "Los parametros deben contener userId para Empleado");
-        assertEquals(empleadoId, executedParams.getValue("userId"), "El userId filtrado debe ser el ID del empleado actual");
+        assertTrue(executedSql.contains("(:isEmpleado = false OR v.usuario_id = :userId)"));
+        assertTrue(executedParams.hasValue("isEmpleado"));
+        assertTrue((Boolean) executedParams.getValue("isEmpleado"), "Para empleado, isEmpleado debe ser true");
+        assertEquals(empleadoId, executedParams.getValue("userId"));
     }
 }
