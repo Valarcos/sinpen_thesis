@@ -15,7 +15,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/productos")
-@PreAuthorize("hasAnyRole('ADMIN', 'EMPLEADO')")
+@PreAuthorize("hasAnyRole('ADMIN', 'EMPLEADO', 'OWNER')")
 public class ProductController {
 
     private final ProductService service;
@@ -57,8 +57,16 @@ public class ProductController {
         return ResponseEntity.ok(new ProductResponse(product));
     }
 
+    // POST /api/productos/bulk
+    @PostMapping("/bulk")
+    public ResponseEntity<List<ProductResponse>> getBulk(@RequestBody List<Long> ids) {
+        List<Product> products = service.findAllById(ids);
+        return ResponseEntity.ok(products.stream().map(ProductResponse::new).toList());
+    }
+
     // POST /api/productos
     @PostMapping
+    @com.centralizesys.aspect.Idempotent
     public ResponseEntity<ProductResponse> create(@RequestBody ProductRequest request) {
         // Zero-Trust: Extract identity from the validated JWT, never from the request body.
         Long usuarioId = SecurityUtils.getAuthenticatedUserId();
@@ -84,6 +92,7 @@ public class ProductController {
 
     // PUT /api/productos/{id}
     @PutMapping("/{id}")
+    @com.centralizesys.aspect.Idempotent
     public ResponseEntity<Void> update(@PathVariable Long id,
                                        @RequestBody ProductRequest request) {
         // Zero-Trust: Extract identity from the validated JWT, never from the request body.
@@ -104,6 +113,7 @@ public class ProductController {
 
     // DELETE /api/productos/{id}
     @DeleteMapping("/{id}")
+    @com.centralizesys.aspect.Idempotent
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         Long usuarioId = SecurityUtils.getAuthenticatedUserId();
         service.deleteById(id, usuarioId); // Pass it down

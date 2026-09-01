@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UnifiedViewServiceIntegrationTest extends BaseIntegrationTest {
 
@@ -98,5 +100,107 @@ class UnifiedViewServiceIntegrationTest extends BaseIntegrationTest {
 
         // Verify quantity ignores the annulled items (quantity of 5)
         assertThat(Long.valueOf(saleData.get("cantidad_productos").toString())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("getCobrosYPedidos filters sales based on EMPLEADO role")
+    void getCobrosYPedidos_FiltersByEmpleadoRole() {
+        // Arrange
+        // Create an ADMIN user
+        jdbcTemplate.update("INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES ('Admin', 'admin@uvs.com', 'hash', 'ADMIN', true) ON CONFLICT DO NOTHING");
+        Long adminId = jdbcTemplate.queryForObject("SELECT id FROM usuarios WHERE email = 'admin@uvs.com'", Long.class);
+
+        // Create an EMPLEADO user
+        jdbcTemplate.update("INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES ('Emp', 'emp@uvs.com', 'hash', 'EMPLEADO', true) ON CONFLICT DO NOTHING");
+        Long empleadoId = jdbcTemplate.queryForObject("SELECT id FROM usuarios WHERE email = 'emp@uvs.com'", Long.class);
+
+        // Seed 2 FIADO sales: one for admin, one for empleado
+        Long adminVentaId = seedTestSaleWithDebt(adminId, "Admin Client", 1000.0, 400.0, 0.0);
+        Long empVentaId = seedTestSaleWithDebt(empleadoId, "Emp Client", 500.0, 200.0, 0.0);
+
+        // Act & Assert for ADMIN
+        // Simulate ADMIN context
+        authenticateUser(adminId, "ROLE_ADMIN");
+
+        List<Map<String, Object>> adminView = unifiedViewService.getCobrosYPedidos();
+
+        boolean foundAdmin = adminView.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(adminVentaId));
+        boolean foundEmp = adminView.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(empVentaId));
+
+        assertTrue(foundAdmin, "ADMIN debe ver sus propias ventas");
+        assertTrue(foundEmp, "ADMIN debe ver las ventas de los empleados");
+
+        // Act & Assert for EMPLEADO
+        // Simulate EMPLEADO context
+        authenticateUser(empleadoId, "ROLE_EMPLEADO");
+
+        List<Map<String, Object>> empView = unifiedViewService.getCobrosYPedidos();
+
+        boolean empFoundAdmin = empView.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(adminVentaId));
+        boolean empFoundEmp = empView.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(empVentaId));
+
+        assertFalse(empFoundAdmin, "EMPLEADO NO debe ver las ventas del ADMIN");
+        assertTrue(empFoundEmp, "EMPLEADO debe ver sus propias ventas");
+
+        // --- Additional Test Coverage: PEDIDO ---
+        // Seed a pending sale (PEDIDO) for both roles
+        Long adminPedidoId = seedTestPedido(adminId, "Admin Pedido");
+        Long empPedidoId = seedTestPedido(empleadoId, "Emp Pedido");
+
+        // Verify Admin sees both Pedidos
+        authenticateUser(adminId, "ROLE_ADMIN");
+        List<Map<String, Object>> adminViewPedidos = unifiedViewService.getCobrosYPedidos();
+        assertTrue(adminViewPedidos.stream().anyMatch(row -> row.get("id_referencia") != null && Long.valueOf(row.get("id_referencia").toString()).equals(adminPedidoId) && "PEDIDO".equals(row.get("tipo"))));
+        assertTrue(adminViewPedidos.stream().anyMatch(row -> row.get("id_referencia") != null && Long.valueOf(row.get("id_referencia").toString()).equals(empPedidoId) && "PEDIDO".equals(row.get("tipo"))));
+
+        // Verify Empleado sees BOTH Pedidos (Rollback: all users see all pending sales)
+        authenticateUser(empleadoId, "ROLE_EMPLEADO");
+        List<Map<String, Object>> empViewPedidos = unifiedViewService.getCobrosYPedidos();
+        assertTrue(empViewPedidos.stream().anyMatch(row -> row.get("id_referencia") != null && Long.valueOf(row.get("id_referencia").toString()).equals(adminPedidoId) && "PEDIDO".equals(row.get("tipo"))));
+        assertTrue(empViewPedidos.stream().anyMatch(row -> row.get("id_referencia") != null && Long.valueOf(row.get("id_referencia").toString()).equals(empPedidoId) && "PEDIDO".equals(row.get("tipo"))));
+
+        // --- Additional Test Coverage: CHEQUE ---
+        // Seed a CHEQUE alert for both roles (active sale)
+        Long adminChequeSaleId = seedTestCheque(adminId, "Admin Cheque");
+        Long empChequeSaleId = seedTestCheque(empleadoId, "Emp Cheque");
+
+        // Verify Admin sees both Cheques
+        authenticateUser(adminId, "ROLE_ADMIN");
+        List<Map<String, Object>> adminViewCheques = unifiedViewService.getCobrosYPedidos();
+        assertTrue(adminViewCheques.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(adminChequeSaleId) && "CHEQUE".equals(row.get("tipo"))));
+        assertTrue(adminViewCheques.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(empChequeSaleId) && "CHEQUE".equals(row.get("tipo"))));
+
+        // Verify Empleado sees only their Cheque
+        authenticateUser(empleadoId, "ROLE_EMPLEADO");
+        List<Map<String, Object>> empViewCheques = unifiedViewService.getCobrosYPedidos();
+        assertFalse(empViewCheques.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(adminChequeSaleId) && "CHEQUE".equals(row.get("tipo"))));
+        assertTrue(empViewCheques.stream().anyMatch(row -> row.get("venta_id") != null && Long.valueOf(row.get("venta_id").toString()).equals(empChequeSaleId) && "CHEQUE".equals(row.get("tipo"))));
+    }
+
+    private Long seedTestPedido(Long userId, String clientName) {
+        Venta venta = new Venta();
+        venta.setFecha(LocalDateTime.now());
+        venta.setClienteNombre(clientName);
+        venta.setTotalVenta(100.0);
+        venta.setUsuarioId(userId);
+        venta.setEstado("PENDIENTE"); // Critical for PEDIDO query
+        return ventaRepository.saveVenta(venta);
+    }
+
+    private Long seedTestCheque(Long userId, String clientName) {
+        Venta venta = new Venta();
+        venta.setFecha(LocalDateTime.now());
+        venta.setClienteNombre(clientName);
+        venta.setTotalVenta(200.0);
+        venta.setUsuarioId(userId);
+        venta.setEstado("ACTIVA"); // Critical for CHEQUE query (must not be PENDIENTE)
+        Long ventaId = ventaRepository.saveVenta(venta);
+
+        jdbcTemplate.update("""
+            INSERT INTO alertas_cheques (venta_id, monto, estado, fecha_cobro)
+            VALUES (?, 200.0, 'PENDIENTE', CURRENT_DATE)
+        """, ventaId);
+
+        return ventaId;
     }
 }

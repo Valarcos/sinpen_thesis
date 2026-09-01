@@ -1,6 +1,8 @@
 package com.centralizesys.service;
 
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.centralizesys.security.SecurityUtils;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -9,13 +11,16 @@ import java.util.Map;
 @Service
 public class UnifiedViewService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
 
-    public UnifiedViewService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public UnifiedViewService(NamedParameterJdbcTemplate namedParameterJdbcTemplate) {
+        this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
     }
 
     public List<Map<String, Object>> getCobrosYPedidos() {
+        boolean isEmpleado = SecurityUtils.isCurrentUserEmpleado();
+        Long currentUserId = SecurityUtils.getAuthenticatedUserId();
+
         String sql = """
             SELECT
                 'FIADO' as tipo,
@@ -35,6 +40,7 @@ public class UnifiedViewService {
             FROM deudores d
             JOIN ventas v ON d.venta_id = v.id
             WHERE d.estado IN ('PENDIENTE', 'PARCIAL')
+              AND (:isEmpleado = false OR v.usuario_id = :userId)
             
             UNION ALL
             
@@ -58,6 +64,7 @@ public class UnifiedViewService {
             FROM alertas_cheques ac
             JOIN ventas v ON ac.venta_id = v.id
             WHERE ac.estado = 'PENDIENTE' AND v.estado != 'PENDIENTE'
+              AND (:isEmpleado = false OR v.usuario_id = :userId)
             GROUP BY v.id, v.cliente_nombre, v.fecha, v.total_venta, v.tipo_venta
         
             UNION ALL
@@ -91,6 +98,10 @@ public class UnifiedViewService {
             LIMIT 300
         """;
 
-        return jdbcTemplate.queryForList(sql);
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        params.addValue("isEmpleado", isEmpleado);
+        params.addValue("userId", currentUserId);
+
+        return namedParameterJdbcTemplate.queryForList(sql, params);
     }
 }

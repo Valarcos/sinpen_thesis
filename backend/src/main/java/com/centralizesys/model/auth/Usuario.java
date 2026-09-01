@@ -14,6 +14,7 @@ public class Usuario {
     private String nombre;
     private String email;
     private String passwordHash; // Stores BCrypt hash, NOT plain text
+    private String securityPin; // Stores BCrypt hash of the report security PIN, nullable
     private UsuarioRole rol;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime fechaCreacion;

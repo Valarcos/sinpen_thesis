@@ -30,6 +30,7 @@ public class UsuarioRepository {
             rs.getString(NOMBRE),
             rs.getString(EMAIL),
             rs.getString("password_hash"),
+            rs.getString("security_pin"),
             UsuarioRole.valueOf(rs.getString("rol")),
             rs.getObject("fecha_creacion", LocalDateTime.class),
             rs.getBoolean("activo"));
@@ -54,14 +55,15 @@ public class UsuarioRepository {
 
     public void save(Usuario usuario) {
         String sql = """
-                    INSERT INTO usuarios (nombre, email, password_hash, rol)
-                    VALUES (:nombre, :email, :passwordHash, :rol)
+                    INSERT INTO usuarios (nombre, email, password_hash, security_pin, rol)
+                    VALUES (:nombre, :email, :passwordHash, :securityPin, :rol)
                 """;
 
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue(NOMBRE, usuario.getNombre())
                 .addValue(EMAIL, usuario.getEmail())
                 .addValue("passwordHash", usuario.getPasswordHash())
+                .addValue("securityPin", usuario.getSecurityPin())
                 .addValue("rol", usuario.getRol().name());
 
         namedJdbcTemplate.update(sql, params);
@@ -92,7 +94,7 @@ public class UsuarioRepository {
     public void update(Usuario usuario) {
         String sql = """
                     UPDATE usuarios
-                    SET nombre = :nombre, email = :email, password_hash = :passwordHash, rol = :rol
+                    SET nombre = :nombre, email = :email, password_hash = :passwordHash, security_pin = :securityPin, rol = :rol
                     WHERE id = :id
                 """;
 
@@ -101,6 +103,7 @@ public class UsuarioRepository {
                 .addValue(NOMBRE, usuario.getNombre())
                 .addValue(EMAIL, usuario.getEmail())
                 .addValue("passwordHash", usuario.getPasswordHash())
+                .addValue("securityPin", usuario.getSecurityPin())
                 .addValue("rol", usuario.getRol().name());
 
         namedJdbcTemplate.update(sql, params);

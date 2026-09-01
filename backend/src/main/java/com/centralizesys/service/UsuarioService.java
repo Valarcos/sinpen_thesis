@@ -52,7 +52,7 @@ public class UsuarioService {
      * Handles password hashing and email duplication checks.
      */
     @Transactional
-    public void registrarUsuario(String nombre, String email, String rawPassword) {
+    public void registrarUsuario(String nombre, String email, String rawPassword, String rolStr, String securityPin) {
         // 1. Check if email already exists
         if (usuarioRepository.findByEmail(email).isPresent()) {
             throw new BusinessRuleException("El correo '" + email + "' ya está registrado.");
@@ -63,7 +63,20 @@ public class UsuarioService {
         newUser.setNombre(nombre);
         newUser.setEmail(email);
         newUser.setPasswordHash(passwordEncoder.encode(rawPassword));
-        newUser.setRol(UsuarioRole.EMPLEADO);
+
+        if (rolStr != null && !rolStr.isBlank()) {
+            String trimmedRol = rolStr.trim().toUpperCase();
+            if (!trimmedRol.equals("ADMIN") && !trimmedRol.equals("EMPLEADO") && !trimmedRol.equals("OWNER")) {
+                throw new BusinessRuleException("Rol debe ser ADMIN, EMPLEADO o OWNER.");
+            }
+            newUser.setRol(UsuarioRole.valueOf(trimmedRol));
+        } else {
+            newUser.setRol(UsuarioRole.EMPLEADO);
+        }
+
+        if (securityPin != null && !securityPin.isBlank()) {
+            newUser.setSecurityPin(passwordEncoder.encode(securityPin.trim()));
+        }
 
         // 3. Persist
         usuarioRepository.save(newUser);
@@ -121,6 +134,7 @@ public class UsuarioService {
         updateEmail(existing, request.email());
         updatePassword(existing, request.password());
         updateRol(existing, request.rol());
+        updateSecurityPin(existing, request.securityPin());
 
         usuarioRepository.update(existing);
 
@@ -156,9 +170,21 @@ public class UsuarioService {
         if (rol == null || rol.isBlank()) {
             return;
         }
-        if (!rol.equals("ADMIN") && !rol.equals("EMPLEADO")) {
-            throw new BusinessRuleException("Rol debe ser ADMIN o EMPLEADO.");
+        String trimmedRol = rol.trim().toUpperCase();
+        if (!trimmedRol.equals("ADMIN") && !trimmedRol.equals("EMPLEADO") && !trimmedRol.equals("OWNER")) {
+            throw new BusinessRuleException("Rol debe ser ADMIN, EMPLEADO o OWNER.");
         }
-        user.setRol(UsuarioRole.valueOf(rol));
+        user.setRol(UsuarioRole.valueOf(trimmedRol));
+    }
+
+    private void updateSecurityPin(Usuario user, String securityPin) {
+        if (securityPin == null) {
+            return;
+        }
+        if (securityPin.isBlank()) {
+            user.setSecurityPin(null);
+        } else {
+            user.setSecurityPin(passwordEncoder.encode(securityPin.trim()));
+        }
     }
 }

@@ -16,7 +16,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/stock")
-@PreAuthorize("hasAnyRole('ADMIN', 'EMPLEADO')")
+@PreAuthorize("hasAnyRole('ADMIN', 'EMPLEADO', 'OWNER')")
 public class StockController {
 
     private final StockService stockService;

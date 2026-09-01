@@ -38,9 +38,24 @@ class AuditoriaControllerTest {
     }
 
     @Test
+    @WithMockUser(username = "owner", roles = { "OWNER" })
+    void testGetLogs_AsOwner_Returns200() throws Exception {
+        given(auditoriaService.findByDateRange(any(), any())).willReturn(Collections.emptyList());
+
+        mockMvc.perform(get("/api/auditoria"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     @WithMockUser(username = "employee", roles = { "EMPLEADO" })
     void testGetLogs_AsEmployee_Returns403() throws Exception {
         mockMvc.perform(get("/api/auditoria"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void testGetLogs_Unauthenticated_Returns401() throws Exception {
+        mockMvc.perform(get("/api/auditoria"))
+                .andExpect(status().isUnauthorized());
     }
 }

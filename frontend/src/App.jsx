@@ -40,6 +40,15 @@ function AdminRoute({ children }) {
 }
 
 /**
+ * Protects report-only routes.
+ * Redirects to dashboard if user is EMPLEADO.
+ */
+function ReportesRoute({ children }) {
+    const role = localStorage.getItem('userRole');
+    return role !== 'EMPLEADO' ? children : <Navigate to="/dashboard" replace />;
+}
+
+/**
  * Placeholder component for pages not yet implemented.
  */
 function PlaceholderPage({ title, sprint = 3 }) {
@@ -72,7 +81,11 @@ const router = createBrowserRouter([
             { path: 'ventas', element: <VentaPage /> },
             { path: 'inventario', element: <InventarioPage /> },
             { path: 'cobros-y-pedidos', element: <CobrosYPedidosPage /> },
-            { path: 'reportes', element: <ReportesPage /> },
+            { path: 'reportes', element: (
+                    <ReportesRoute>
+                        <ReportesPage />
+                    </ReportesRoute>
+                ) },
             { path: 'historial-ventas', element: <SalesHistoryPage /> },
             {
                 path: 'admin',

@@ -292,40 +292,44 @@ export default function BackupPage() {
                                     {group.typeDisplay}
                                 </td>
                                 <td data-label="Descargas">
-                                    <div className="download-buttons-group">
-                                        {/* Download Both */}
-                                        {group.sqlFile && group.excelFile && (
-                                            <button
-                                                onClick={() => handleDownloadBoth(group.sqlFile, group.excelFile)}
-                                                className="btn-large btn-download-all"
-                                                title="Descargar ambos archivos"
-                                            >
-                                                ⬇️ DESCARGAR TODO
-                                            </button>
-                                        )}
+                                    {['ADMIN', 'OWNER'].includes(userRole) ? (
+                                        <div className="download-buttons-group">
+                                            {/* Download Both */}
+                                            {group.sqlFile && group.excelFile && (
+                                                <button
+                                                    onClick={() => handleDownloadBoth(group.sqlFile, group.excelFile)}
+                                                    className="btn-large btn-download-all"
+                                                    title="Descargar ambos archivos"
+                                                >
+                                                    ⬇️ DESCARGAR TODO
+                                                </button>
+                                            )}
 
-                                        {/* Excel Button */}
-                                        {group.excelFile && (
-                                            <button
-                                                onClick={() => handleDownload(group.excelFile)}
-                                                className="btn-large btn-excel"
-                                                title="Descargar Excel"
-                                            >
-                                                📊 EXCEL
-                                            </button>
-                                        )}
+                                            {/* Excel Button */}
+                                            {group.excelFile && (
+                                                <button
+                                                    onClick={() => handleDownload(group.excelFile)}
+                                                    className="btn-large btn-excel"
+                                                    title="Descargar Excel"
+                                                >
+                                                    📊 EXCEL
+                                                </button>
+                                            )}
 
-                                        {/* SQL Button */}
-                                        {group.sqlFile && (
-                                            <button
-                                                onClick={() => handleDownload(group.sqlFile)}
-                                                className="btn-large btn-db"
-                                                title="Descargar Copia SQL"
-                                            >
-                                                🗄️ SQL
-                                            </button>
-                                        )}
-                                    </div>
+                                            {/* SQL Button */}
+                                            {group.sqlFile && (
+                                                <button
+                                                    onClick={() => handleDownload(group.sqlFile)}
+                                                    className="btn-large btn-db"
+                                                    title="Descargar Copia SQL"
+                                                >
+                                                    🗄️ SQL
+                                                </button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <span style={{ color: '#888' }}>Sin permisos de descarga</span>
+                                    )}
                                 </td>
                                 {userRole === 'ADMIN' && (
                                     <td data-label="Admin">

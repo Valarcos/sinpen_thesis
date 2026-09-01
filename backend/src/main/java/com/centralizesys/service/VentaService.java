@@ -509,7 +509,13 @@ public class VentaService {
         }
 
         TipoVenta tipoVenta = request.getTipoVenta() != null ? request.getTipoVenta() : TipoVenta.valueOf(pendingSale.getTipoVenta());
-        ProcessedSaleResult processedData = processItems(request.getItems(), tipoVenta);
+
+        // Return old stock (and determine previously included products to bypass inactive check)
+        List<DetalleVenta> oldDetails = ventaRepository.findDetallesByVentaId(id);
+        java.util.Map<Long, Long> oldProductQuantities = oldDetails.stream()
+                .collect(java.util.stream.Collectors.toMap(DetalleVenta::getProductoId, DetalleVenta::getCantidad, Long::sum));
+
+        ProcessedSaleResult processedData = processItems(request.getItems(), tipoVenta, oldProductQuantities);
 
         Double subtotal = processedData.getTotalVenta();
         Double descuentoGlobal = request.getDescuentoGlobal();
@@ -531,8 +537,6 @@ public class VentaService {
         Double saldoGenerado = request.getSaldoGenerado();
         if (finalTotal + saldoGenerado < totalAbonado) throw new BusinessRuleException(String.format("El nuevo total más el saldo generado ($%.2f) no puede ser menor al monto ya abonado ($%.2f).", finalTotal + saldoGenerado, totalAbonado));
 
-        // Return old stock
-        List<DetalleVenta> oldDetails = ventaRepository.findDetallesByVentaId(id);
         if (!oldDetails.isEmpty()) {
             for (DetalleVenta d : oldDetails) {
                 List<StockLocation> allLocations = stockRepository.findByProductId(d.getProductoId());
@@ -766,6 +770,10 @@ public class VentaService {
     }
 
     ProcessedSaleResult processItems(List<VentaRequest.ItemRequest> itemsReq, TipoVenta tipoVenta) {
+        return processItems(itemsReq, tipoVenta, java.util.Collections.emptyMap());
+    }
+
+    ProcessedSaleResult processItems(List<VentaRequest.ItemRequest> itemsReq, TipoVenta tipoVenta, java.util.Map<Long, Long> oldProductQuantities) {
         ProcessedSaleResult result = new ProcessedSaleResult();
         result.setDetalles(new ArrayList<>());
         Double totalAcumulado = 0.0;
@@ -776,7 +784,15 @@ public class VentaService {
             }
 
             Product producto = productRepository.findByIdIncludingInactive(itemReq.getProductoId()).orElseThrow(() -> new ResourceNotFoundException("Producto", itemReq.getProductoId()));
-            if (!producto.isActivo()) throw new BusinessRuleException("El producto '" + producto.getDescripcion() + "' está eliminado y no puede ser incluido.");
+
+            if (!producto.isActivo()) {
+                Long oldQty = oldProductQuantities != null ? oldProductQuantities.get(producto.getId()) : null;
+                if (oldQty == null) {
+                    throw new BusinessRuleException("El producto '" + producto.getDescripcion() + "' está eliminado y no puede ser incluido.");
+                } else if (itemReq.getCantidad() > oldQty) {
+                    throw new BusinessRuleException("El producto '" + producto.getDescripcion() + "' está eliminado. No puede incrementar su cantidad (máximo permitido: " + oldQty + ").");
+                }
+            }
 
             DetalleVenta detalle = createDetalleVenta(producto, itemReq, tipoVenta);
             result.getDetalles().add(detalle);

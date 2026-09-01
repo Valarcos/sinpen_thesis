@@ -36,7 +36,8 @@ public class UsuarioController {
         UsuarioResponse response = new UsuarioResponse(
                 user.getId(),
                 user.getNombre(),
-                user.getEmail());
+                user.getEmail(),
+                user.getRol().name());
 
         return ResponseEntity.ok(response);
     }
@@ -44,13 +45,15 @@ public class UsuarioController {
     /**
      * Endpoint to register new admin users.
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     @PostMapping("/register")
     public ResponseEntity<Void> register(@RequestBody RegisterRequest request) {
         usuarioService.registrarUsuario(
                 request.getNombre(),
                 request.getEmail(),
-                request.getPassword());
+                request.getPassword(),
+                request.getRol(),
+                request.getSecurityPin());
         return new ResponseEntity<>(HttpStatus.CREATED);
     }
 
@@ -58,13 +61,13 @@ public class UsuarioController {
      * Endpoint to list all users.
      * Admin Only.
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     @GetMapping
     public ResponseEntity<List<UsuarioResponse>> getAll() {
         List<Usuario> users = usuarioService.getAll();
 
         List<UsuarioResponse> response = users.stream()
-                .map(u -> new UsuarioResponse(u.getId(), u.getNombre(), u.getEmail()))
+                .map(u -> new UsuarioResponse(u.getId(), u.getNombre(), u.getEmail(), u.getRol().name()))
                 .toList();
 
         return ResponseEntity.ok(response);
@@ -74,7 +77,7 @@ public class UsuarioController {
      * Endpoint to delete a user.
      * Admin Only.
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         usuarioService.delete(id);
@@ -85,7 +88,7 @@ public class UsuarioController {
      * Endpoint to update a user's details.
      * Admin Only.
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     @PutMapping("/{id}")
     public ResponseEntity<Void> update(@PathVariable Long id,
                                        @RequestBody com.centralizesys.model.auth.UpdateUserRequest request) {

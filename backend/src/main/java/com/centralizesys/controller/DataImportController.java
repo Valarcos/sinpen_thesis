@@ -4,6 +4,7 @@ import com.centralizesys.config.DataPathConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -13,6 +14,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/import")
+@PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
 public class DataImportController {
 
     private static final Logger log = LoggerFactory.getLogger(DataImportController.class);

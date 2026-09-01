@@ -106,4 +106,26 @@ class ProductServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals(2, family.size(), "Should find all family members using lowercase code");
         assertEquals("FAMILY-UPPER", family.getFirst().getCodigo(), "Database codes should remain uppercase");
     }
+
+    @Test
+    @DisplayName("IT-07: findAllById retrieves active products and omits deleted ones")
+    void findAllById_OmitsDeleted() {
+        Product p1 = Product.builder().codigo("BULK-1").descripcion("Bulk 1").precioCosto(10.0).precioMayorista(10.0).precioMinorista(20.0).build();
+        Product p2 = Product.builder().codigo("BULK-2").descripcion("Bulk 2").precioCosto(15.0).precioMayorista(15.0).precioMinorista(25.0).build();
+        Product p3 = Product.builder().codigo("BULK-3").descripcion("Bulk 3").precioCosto(20.0).precioMayorista(20.0).precioMinorista(30.0).build();
+
+        Product saved1 = productService.create(p1);
+        Product saved2 = productService.create(p2);
+        Product saved3 = productService.create(p3);
+
+        // Delete one product logically
+        productService.deleteById(saved2.getId(), 0L);
+
+        List<Product> results = productService.findAllById(List.of(saved1.getId(), saved2.getId(), saved3.getId()));
+
+        assertEquals(2, results.size(), "Should only return active products");
+        assertTrue(results.stream().anyMatch(p -> p.getId().equals(saved1.getId())));
+        assertTrue(results.stream().anyMatch(p -> p.getId().equals(saved3.getId())));
+        assertFalse(results.stream().anyMatch(p -> p.getId().equals(saved2.getId())));
+    }
 }

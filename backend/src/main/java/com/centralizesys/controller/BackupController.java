@@ -52,6 +52,7 @@ public class BackupController {
         return ResponseEntity.ok(backups.get(0));
     }
 
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     @GetMapping("/download/{filename}")
     public ResponseEntity<Resource> downloadBackup(@PathVariable String filename) {
         try {
@@ -76,9 +77,9 @@ public class BackupController {
         }
     }
 
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     @com.centralizesys.aspect.Idempotent
     @PostMapping("/restore/{filename}")
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<String> restoreDatabase(@PathVariable String filename) {
         try {
             File file = backupService.getBackupFile(filename);
@@ -92,9 +93,9 @@ public class BackupController {
     // TODO: DB Growth Analysis - Address the rapidly increasing size of the database backups.
     // Investigate if data types are properly optimized and establish an industry-standard policy
     // on when it is acceptable to permanently delete data versus using logical (soft) deletes.
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     @com.centralizesys.aspect.Idempotent
     @PostMapping(value = "/upload-restore", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<String> restoreFromUpload(
             @RequestPart("file") org.springframework.web.multipart.MultipartFile file) {
         String filename = file.getOriginalFilename();

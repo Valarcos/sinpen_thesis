@@ -83,6 +83,10 @@ public class ProductService {
         return repository.search(query);
     }
 
+    public List<Product> findAllById(List<Long> ids) {
+        return repository.findAllById(ids);
+    }
+
     // Package-private for testing
     void validate(Product product) {
         if (product.getCodigo() == null || product.getCodigo().isBlank()) {
